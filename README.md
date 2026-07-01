@@ -69,6 +69,13 @@ npm install --registry=https://registry.npmmirror.com
 
 ### 启动服务
 
+#### 第一次
+```powershell
+npm run build
+npm start
+```
+
+#### 之后
 ```powershell
 npm start
 ```
