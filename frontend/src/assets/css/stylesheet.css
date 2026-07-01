@@ -1,0 +1,357 @@
+/*============================================================
+  FileServer — Noir Amber Design System (Global Base)
+  仅保留 CSS 变量、Reset、共用装饰与动画关键帧。
+  组件特有样式已移至各 .vue 文件的 <style scoped> 中。
+  ============================================================ 
+*/
+
+@import '../fontawesome/css/all.min.css';
+@import '../fonts/fonts.css';
+
+/* --- CSS Custom Properties --------------------------------- */
+:root {
+  /* Depth layers */
+  --bg-deep: #0f0d0b;
+  --bg-surface: #1a1612;
+  --bg-elevated: #24201b;
+  --bg-hover: #2d2822;
+  --bg-overlay: rgba(15, 13, 11, 0.92);
+
+  /* Amber accent spectrum */
+  --accent: #c8843c;
+  --accent-glow: #e8a87c;
+  --accent-bright: #f0b878;
+  --accent-dim: #8b5e34;
+  --accent-subtle: rgba(200, 132, 60, 0.12);
+  --accent-glow-subtle: rgba(200, 132, 60, 0.06);
+
+  /* Text */
+  --text-primary: #e8e0d5;
+  --text-secondary: #9a8e82;
+  --text-muted: #6b6058;
+  --text-inverse: #0f0d0b;
+
+  /* Semantic */
+  --danger: #c4554d;
+  --danger-glow: rgba(196, 85, 77, 0.15);
+  --success: #6b8b6b;
+  --success-glow: rgba(107, 139, 107, 0.15);
+  --info: #7b9cad;
+  --warning: #c49b4d;
+
+  /* Borders */
+  --border: #2d2822;
+  --border-glow: #3d3528;
+  --border-accent: rgba(200, 132, 60, 0.3);
+
+  /* Glass & overlay helpers (consumed by components) */
+  --glass-bg: rgba(26, 22, 18, 0.85);
+  --overlay-bg: rgba(15, 13, 11, 0.6);
+  --hover-bright: rgba(255, 255, 255, 0.1);
+
+  /* Noise / ambient helpers */
+  --noise-opacity: 0.035;
+  --vignette-accent: rgba(200, 132, 60, 0.04);
+
+  /* Layout */
+  --topbar-height: 56px;
+  --fab-size: 56px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 30px rgba(200, 132, 60, 0.15);
+  --shadow-card-hover: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-accent);
+
+  /* Transitions */
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+  --duration-reveal: 600ms;
+}
+
+/* ============================================================
+   ☀️ Light Mode — warm cream counterpart to Noir Amber
+   ============================================================ */
+[data-theme="light"] {
+  /* Depth layers — warm cream foundation */
+  --bg-deep: #f5f0ea;
+  --bg-surface: #faf7f2;
+  --bg-elevated: #ffffff;
+  --bg-hover: #ede8e0;
+  --bg-overlay: rgba(245, 240, 234, 0.92);
+
+  /* Amber accent — same brand colors, adjusted glow for light bg */
+  --accent-subtle: rgba(200, 132, 60, 0.10);
+  --accent-glow-subtle: rgba(200, 132, 60, 0.04);
+
+  /* Text — inverted warmth */
+  --text-primary: #2c2420;
+  --text-secondary: #6b6058;
+  --text-muted: #9a8e82;
+  --text-inverse: #faf7f2;
+
+  /* Semantic — more readable on light */
+  --danger-glow: rgba(196, 85, 77, 0.08);
+  --success: #5a7a5a;
+  --success-glow: rgba(90, 122, 90, 0.08);
+  --info: #6b8da0;
+  --warning: #b89240;
+
+  /* Borders — soft warm lines */
+  --border: #ddd5cc;
+  --border-glow: #d5ccc2;
+  --border-accent: rgba(200, 132, 60, 0.2);
+
+  /* Glass & overlay helpers */
+  --glass-bg: rgba(245, 240, 234, 0.92);
+  --overlay-bg: rgba(0, 0, 0, 0.25);
+  --hover-bright: rgba(0, 0, 0, 0.05);
+
+  /* Noise / ambient helpers */
+  --noise-opacity: 0.015;
+  --vignette-accent: rgba(200, 132, 60, 0.02);
+
+  /* Shadows — lighter for daylight */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.10);
+  --shadow-glow: 0 0 30px rgba(200, 132, 60, 0.08);
+  --shadow-card-hover: 0 8px 32px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border-accent);
+}
+
+/* --- Reset & Base ------------------------------------------ */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+  line-height: 1.5;
+}
+
+/* Noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Ambient vignette */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 0%, var(--vignette-accent) 0%, transparent 60%),
+              radial-gradient(ellipse at 85% 100%, var(--vignette-accent) 0%, transparent 50%);
+}
+
+/* --- Scrollbar --------------------------------------------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-glow);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* --- Selection --------------------------------------------- */
+::selection {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+/* --- Shared Status Dot ------------------------------------- */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.status-dot.disconnected {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+
+/* --- Shared Loading Spinner --------------------------------- */
+.loading-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Shared Empty State Icon ------------------------------- */
+.empty-state-icon {
+  font-size: 3.5rem;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  opacity: 0.4;
+}
+
+/* --- Shared cardReveal Keyframe ---------------------------- */
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* --- Landscape / short screens (shared across components) --- */
+@media (max-height: 500px) and (orientation: landscape) {
+  :root {
+    --topbar-height: 44px;
+  }
+
+  .content-scroll {
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+
+  .fab-container {
+    bottom: 10px;
+    right: 10px;
+  }
+
+  .upload-dialog {
+    max-height: 85vh;
+  }
+}
+
+/* --- Touch device optimizations (shared across components) -- */
+@media (hover: none) and (pointer: coarse) {
+  /* Disable hover-only effects for file cards */
+  .file-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm);
+    border-color: var(--border);
+  }
+
+  .file-card:hover::after {
+    background: var(--border);
+    left: 16px;
+    right: 16px;
+  }
+
+  .file-card-actions {
+    opacity: 1;
+    transform: none;
+  }
+
+  .card-action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+
+  /* Larger touch targets */
+  .topbar-nav-item,
+  .card-action-btn,
+  .row-action-btn,
+  .upload-browse-btn,
+  .clipboard-item__action-btn {
+    min-height: 28px;
+    min-width: 28px;
+  }
+
+  /* Disable clipboard hover effects on touch */
+  .clipboard-item:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+
+  .clipboard-device-name:hover {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+}
+
+/* --- New File Highlight (flash) ---------------------------- */
+@keyframes file-highlight-flash {
+  0%   { background: rgba(200, 132, 60, 0.25); border-color: var(--accent); }
+  40%  { background: rgba(200, 132, 60, 0.12); border-color: var(--border-accent); }
+  100% { background: transparent; border-color: var(--border); }
+}
+
+.file-highlight {
+  animation: file-highlight-flash 1.5s var(--ease-out-expo) both;
+}
+
+.file-highlight td {
+  animation: file-highlight-flash 1.5s var(--ease-out-expo) both;
+}
+
+/* --- Smooth theme transition (on data-theme change) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* Only applies where no more-specific transition is defined */
+  html * {
+    transition: background-color 350ms ease,
+                border-color 350ms ease,
+                box-shadow 350ms ease;
+  }
+}
+
+/* --- Reduce motion ----------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

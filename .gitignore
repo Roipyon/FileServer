@@ -1,0 +1,21 @@
+# 依赖管理
+node_modules/
+
+# 构建输出
+dist/
+
+# 临时文件与缓存
+temp-chunks/
+temp-thumbnails/
+temp-zip/
+shared-files/
+.logs/
+
+# 编辑器与工具配置
+.vscode/
+.claude/
+
+# 操作系统特定文件
+.DS_Store
+
+CLAUDE.md

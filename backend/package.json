@@ -1,0 +1,19 @@
+{
+  "name": "file-server-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "archiver": "^6.0.2",
+    "formidable": "^3.5.4",
+    "libarchive-wasm": "^1.2.0",
+    "music-metadata": "^11.13.0",
+    "open": "^11.0.0",
+    "qrcode": "^1.5.4"
+  }
+}

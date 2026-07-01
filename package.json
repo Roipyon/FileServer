@@ -1,0 +1,16 @@
+{
+  "name": "file-server",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev": "concurrently -n vue,node -c blue,green \"npm run dev -w frontend\" \"npm run dev -w backend\"",
+    "dev:vite": "npm run dev -w frontend",
+    "dev:node": "npm run dev -w backend",
+    "build": "npm run build -w frontend",
+    "start": "npm run start -w backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
