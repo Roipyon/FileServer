@@ -1,11 +1,15 @@
 /**
  * 路径常量 — 集中管理所有数据目录路径
+ *
+ * 可写目录锚定 runtime-base 的 BASE_DIR（开发态=项目根，打包态=exe 所在目录）；
+ * PUBLIC_DIR 在打包态读快照内嵌的 dist，开发态保持 dist > frontend/public 探测顺序。
  */
 const path = require('path');
 const fs = require('fs');
 const { getConfig } = require('../config');
+const { IS_PACKAGED, BASE_DIR } = require('./runtime-base');
 
-const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const PROJECT_ROOT = BASE_DIR;
 const config = getConfig();
 
 const SHARED_FOLDER = path.resolve(PROJECT_ROOT, config.root || './shared-files');
@@ -14,9 +18,20 @@ const CLIPBOARD_DIR = path.join(SHARED_FOLDER, '.clipboard');
 const THUMBNAIL_CACHE_DIR = path.join(PROJECT_ROOT, 'temp-thumbnails');
 const INCOMING_DIR = path.join(SHARED_FOLDER, 'incoming');
 
-const PUBLIC_DIR = fs.existsSync(path.join(PROJECT_ROOT, 'dist'))
-  ? path.join(PROJECT_ROOT, 'dist')
-  : path.join(PROJECT_ROOT, 'frontend', 'public');
+function resolvePublicDir() {
+  if (IS_PACKAGED) {
+    // 快照内嵌的前端产物（构建时由根 dist/ 拷贝到 backend/dist/ 后打包）
+    return path.resolve(__dirname, '../dist');
+  }
+  const root = path.resolve(__dirname, '../..');
+  const distDir = path.join(root, 'dist');
+  if (fs.existsSync(distDir)) {
+    return distDir;
+  }
+  return path.join(root, 'frontend', 'public');
+}
+
+const PUBLIC_DIR = resolvePublicDir();
 
 const ALL_DIRS = [
   SHARED_FOLDER,

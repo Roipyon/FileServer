@@ -1,0 +1,4 @@
+# Windows 批处理必须为 CRLF，Shell 脚本必须为 LF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf

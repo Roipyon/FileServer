@@ -13,6 +13,8 @@
             :key="f.key"
             class="filter-btn"
             :class="{ active: activeFilter === f.key }"
+            :aria-label="`筛选：${f.label}`"
+            :title="f.label"
             @click="setFilter(f.key)"
           >
             <i :class="f.icon"></i>
@@ -42,8 +44,14 @@
         <div class="empty-state-icon">
             <i class="fas fa-folder-open"></i>
         </div>
-        <h4>暂无共享文件</h4>
-        <p>将文件放入共享文件夹或上传新文件</p>
+        <template v-if="state.searchQuery.trim()">
+          <h4>未找到匹配的文件</h4>
+          <p>换个关键词，或清除搜索查看全部文件</p>
+        </template>
+        <template v-else>
+          <h4>暂无共享文件</h4>
+          <p>将文件放入共享文件夹或上传新文件</p>
+        </template>
         </div>
     </div>
 </template>

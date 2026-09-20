@@ -186,7 +186,7 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 
 const { viewerState, openPreview, openEditor, closeViewer, toggleEditMode, markDirty, markSaved } = useViewer()
-const { state: fileState } = useFileManager()
+const { loadFiles, state: fileState } = useFileManager()
 
 // --- 图片缩放 & 旋转 ---
 const imgScale = ref(1)
@@ -600,6 +600,14 @@ async function handleSave() {
   try {
     const content = cmView.state.doc.toString()
     await saveFile(fileName.value, content)
+    // 同步刷新底栏与文件列表中的大小/修改时间（file 对象与列表共享引用）
+    const bytes = new Blob([content]).size
+    if (viewerState.file) {
+      viewerState.file.size = formatFileSize(bytes)
+      viewerState.file.sizeInBytes = bytes
+      viewerState.file.modified = new Date().toLocaleString('zh-CN')
+    }
+    loadFiles()
     markSaved()
     toast.success('已保存')
   } catch (err) {

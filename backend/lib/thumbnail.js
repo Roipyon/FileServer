@@ -3,9 +3,10 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const logger = require('./logger');
 const { SHARED_FOLDER, THUMBNAIL_CACHE_DIR } = require('./paths');
+const { FFMPEG_BIN } = require('./runtime-base');
 const { TEXT_PREVIEW_EXTS, IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, ARCHIVE_EXTS, getExt, getMimeType } = require('./constants');
 const { sendError } = require('./file-utils');
 
@@ -195,8 +196,9 @@ async function serveThumbnail(req, res, pathname) {
       const framePath = path.join(THUMBNAIL_CACHE_DIR, `${safeKey}_frame.jpg`);
       if (!fs.existsSync(framePath)) {
         try {
-          execSync(
-            `ffmpeg -i "${filePath}" -ss 3 -vframes 1 -q:v 2 "${framePath}" -y`,
+          execFileSync(
+            FFMPEG_BIN,
+            ['-i', filePath, '-ss', '3', '-vframes', '1', '-q:v', '2', framePath, '-y'],
             { timeout: 10000, stdio: 'pipe', windowsHide: true }
           );
         } catch (e) {

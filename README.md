@@ -60,27 +60,68 @@ cd FileServer
 
 或者直接前往 [Releases](https://github.com/Roipyon/FileServer/releases/tag/v1.0.0) 下载。
 
-### 安装依赖
-
-```powershell
-# 基于代码根目录
-npm install --registry=https://registry.npmmirror.com
-```
-
 ### 启动服务
 
-#### 第一次
-```powershell
-npm run build
-npm start
+#### 一键启动（推荐）
+
+**Windows**：双击 `start.bat`（或在 CMD/PowerShell 中运行）
+
+**macOS / Linux**：
+```bash
+./start.sh
 ```
 
-#### 之后
+脚本会自动完成：检测 Node.js → 安装依赖（仅首次）→ 构建前端（仅首次）→ 启动服务器。启动后自动打开浏览器。
+
+#### 手动启动
+
 ```powershell
+# 1. 安装依赖（仅首次）
+npm install --registry=https://registry.npmmirror.com
+
+# 2. 构建前端（仅首次）
+npm run build
+
+# 3. 启动
 npm start
 ```
 
 执行以上步骤后会自动打开浏览器，如无法自动打开，访问**终端处打印的网址**即可。
+
+## 免安装版
+
+无需安装 Node.js，下载或自行构建单个 exe，双击即用。
+
+### 使用
+
+1. 将 `FileServer-win.exe` 放到任意目录（如 `D:\FileServer\`），双击运行
+2. 首次启动自动生成数据文件：`shared-files\`（共享文件）、`config.json`（配置）、`temp-*`（缓存）、`.logs\`（日志）
+3. 启动后自动打开浏览器，终端同时打印二维码，手机扫码即用
+4. 迁移 = 复制整个文件夹
+
+> **ffmpeg（可选）**：如需视频缩略图，安装 ffmpeg 并加入 PATH，或设置环境变量 `FFMPEG_PATH` 指向 ffmpeg.exe；未安装时其余功能不受影响。
+>
+> **杀软提示**：单文件可执行程序可能被杀毒软件误报，可添加信任或自行从源码构建。
+
+### 自行构建
+
+```powershell
+npm install --registry=https://registry.npmmirror.com
+npm run build:exe
+```
+
+产物输出至 `release\FileServer-win.exe`（约 75MB，内嵌 Node.js 运行时与前端资源）。
+
+### 与源码运行的差异
+
+| 项目 | 源码运行 | 免安装版 |
+| :--- | :--- | :--- |
+| 环境要求 | Node.js 18+ | 无 |
+| 数据目录 | 项目根目录 | exe 同级目录 |
+| `config.json` | 随仓库提供 | 首次启动自动生成 |
+| 端口占用降级 / 二维码 / 剪贴板 / 分享 | ✔ | ✔ |
+| `FILESERVER_HOME` / `PORT` 等环境变量 | ✔ | ✔（`FILESERVER_HOME` 可重定向数据目录） |
+
 
 ## 配置（可选）
 
