@@ -18,7 +18,11 @@
               <button class="prompt-btn prompt-btn-cancel" @click="handleCancel">
                 {{ dialogState.cancelText }}
               </button>
-              <button class="prompt-btn prompt-btn-accent" @click="submit">
+              <button
+                class="prompt-btn prompt-btn-accent"
+                :disabled="dialogState.required && !inputValue.trim()"
+                @click="submit"
+              >
                 {{ dialogState.confirmText }}
               </button>
             </div>
@@ -47,6 +51,7 @@ watch(() => dialogState.value.visible, async (visible) => {
 })
 
 function submit() {
+  if (dialogState.value.required && !inputValue.value.trim()) return
   handleConfirm(inputValue.value)
 }
 </script>
@@ -139,10 +144,14 @@ function submit() {
   background: var(--accent);
   color: var(--text-inverse);
 }
-.prompt-btn-accent:hover {
+.prompt-btn-accent:hover:not(:disabled) {
   background: var(--accent-glow);
   box-shadow: 0 4px 20px rgba(200, 132, 60, 0.3);
   transform: translateY(-1px);
+}
+.prompt-btn-accent:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Transitions */

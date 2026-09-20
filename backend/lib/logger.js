@@ -4,11 +4,12 @@
 const fs = require('fs');
 const path = require('path');
 const { getConfig } = require('../config');
+const { BASE_DIR } = require('./runtime-base');
 
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3, silent: 4 };
 const currentLevel = LOG_LEVELS[process.env.LOG_LEVEL] ?? LOG_LEVELS.info;
 
-const LOG_DIR = path.join(__dirname, '../../.logs');
+const LOG_DIR = path.join(BASE_DIR, '.logs');
 const MAX_LOG_SIZE = 10 * 1024 * 1024;
 const MAX_LOG_DAYS = 30;
 

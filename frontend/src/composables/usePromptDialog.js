@@ -8,6 +8,7 @@ const dialogState = ref({
   placeholder: '',
   confirmText: '确定',
   cancelText: '取消',
+  required: false,   // 为 true 时输入为空则禁用确定
 })
 
 let resolveCallback = null
@@ -23,6 +24,7 @@ export function usePromptDialog() {
         title: options.title || '输入',
         confirmText: options.confirmText || '确定',
         cancelText: options.cancelText || '取消',
+        required: options.required || false,
       }
       resolveCallback = resolve
     })

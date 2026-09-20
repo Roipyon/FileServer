@@ -44,8 +44,20 @@ export function useFilePopover() {
     }
   }
 
-  onMounted(() => document.addEventListener('click', onGlobalClick))
-  onUnmounted(() => document.removeEventListener('click', onGlobalClick))
+  function onGlobalKeydown(e) {
+    if (e.key === 'Escape' && menuVisible.value) {
+      closeMenu()
+    }
+  }
+
+  onMounted(() => {
+    document.addEventListener('click', onGlobalClick)
+    document.addEventListener('keydown', onGlobalKeydown)
+  })
+  onUnmounted(() => {
+    document.removeEventListener('click', onGlobalClick)
+    document.removeEventListener('keydown', onGlobalKeydown)
+  })
 
   return {
     menuVisible,

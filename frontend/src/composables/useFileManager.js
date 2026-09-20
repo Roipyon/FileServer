@@ -426,15 +426,11 @@ function clearHighlights() {
 // ==================== 文件重命名 ====================
 async function renameFile(oldName, newName) {
   if (!oldName || !newName || oldName === newName) return null
-  try {
-    const result = await apiRenameFile(oldName, newName)
-    await loadFiles()
-    highlightFile([newName])
-    return result
-  } catch (err) {
-    toast.error('重命名失败:', err)
-    throw err
-  }
+  // 失败提示由调用方负责（避免与调用方 toast 重复）
+  const result = await apiRenameFile(oldName, newName)
+  await loadFiles()
+  highlightFile([newName])
+  return result
 }
 
 export function useFileManager() {

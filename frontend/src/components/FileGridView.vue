@@ -216,7 +216,8 @@ async function handleRename(filename) {
   closeMenu()
   const newName = await prompt('', filename, {
     title: '重命名',
-    placeholder: '请输入新文件名…'
+    placeholder: '请输入新文件名…',
+    required: true
   })
   if (!newName || newName === filename) return
   try {

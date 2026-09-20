@@ -7,6 +7,7 @@
         <div class="clipboard-compact-bar__left">
           <button
             class="clipboard-compact-btn"
+            :aria-label="expanded ? '收起输入区' : '展开输入区'"
             @click="toggleExpanded"
             :title="expanded ? '收起输入区' : '展开输入区'"
           >

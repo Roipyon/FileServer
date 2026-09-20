@@ -106,7 +106,10 @@ async function loadPreview(filename) {
       }
 
       const text = await resp.text()
-      if (text.length > PREVIEW_TEXT_MAX) {
+      if (text.length === 0) {
+        // 空文件：避免渲染空白气泡
+        previewState.content = '（空文件）'
+      } else if (text.length > PREVIEW_TEXT_MAX) {
         previewState.content = text.slice(0, PREVIEW_TEXT_MAX) + '…'
       } else {
         previewState.content = text

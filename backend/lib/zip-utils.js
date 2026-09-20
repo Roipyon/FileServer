@@ -7,8 +7,9 @@ const archiver = require('archiver');
 const crypto = require('crypto');
 const logger = require('./logger');
 const { SHARED_FOLDER } = require('./paths');
+const { BASE_DIR } = require('./runtime-base');
 
-const ZIP_TEMP_DIR = path.join(__dirname, '../../temp-zip');
+const ZIP_TEMP_DIR = path.join(BASE_DIR, 'temp-zip');
 const MAX_FILES_PER_ZIP = 1000;
 const TASK_CLEANUP_MS = 5 * 60 * 1000;
 

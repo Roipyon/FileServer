@@ -3,6 +3,8 @@ node_modules/
 
 # 构建输出
 dist/
+release/
+backend/build/
 
 # 临时文件与缓存
 temp-chunks/
