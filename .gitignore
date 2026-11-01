@@ -4,14 +4,21 @@ node_modules/
 # 构建输出
 dist/
 release/
-backend/build/
 
-# 临时文件与缓存
-temp-chunks/
-temp-thumbnails/
-temp-zip/
-shared-files/
-.logs/
+# 运行时数据与缓存
+backend/FileServer-win.exe
+backend/config.json
+backend/shared-files/
+backend/temp-*/
+
+# Android 构建产物与本地配置
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/jniLibs/
+android/.kotlin/
+android/local.properties
+android/.idea/
 
 # 编辑器与工具配置
 .vscode/
@@ -19,5 +26,4 @@ shared-files/
 
 # 操作系统特定文件
 .DS_Store
-
-CLAUDE.md
+Thumbs.db
