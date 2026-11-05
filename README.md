@@ -70,7 +70,7 @@ git clone https://github.com/Roipyon/FileServer.git
 cd FileServer
 ```
 
-或者直接前往 [Releases](https://github.com/Roipyon/FileServer/releases/tag/v2.1.0) 下载。
+或者直接前往 [Releases](https://github.com/Roipyon/FileServer/releases/tag/v2.1.1) 下载。
 
 ### 启动服务
 
@@ -86,7 +86,7 @@ Copy-Item -Path dist -Destination backend\dist -Recurse -Force
 
 # 3. 构建（需 Go 1.27+）
 cd backend
-go build -ldflags "-s -w -X main.appVersion=2.1.0" -o FileServer-win.exe .
+go build -ldflags "-s -w -X main.appVersion=2.1.1" -o FileServer-win.exe .
 ```
 
 或使用构建脚本：
@@ -125,7 +125,11 @@ CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ..
 cd ../android
 ./gradlew assembleDebug     # 调试包
 ./gradlew assembleRelease   # 发布包（debug 密钥签名，可直接侧载）
-# 产物：app/build/outputs/apk/<variant>/app-<variant>.apk
+# 产物：app/build/outputs/apk/<variant>/ 下按 ABI 拆分
+#   app-arm64-v8a-<variant>.apk   真机分发用（推荐，约 7.4MB）
+#   app-x86_64-<variant>.apk      模拟器用
+#   app-universal-<variant>.apk   全 ABI 合包（兜底）
+# 说明：前端资产只保留 woff2 字体；字体子集仅 latin/latin-ext；release 开 R8 裁剪
 ```
 
 ## 配置（可选）

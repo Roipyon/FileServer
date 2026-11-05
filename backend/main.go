@@ -17,7 +17,7 @@ import (
 )
 
 // appVersion 由构建脚本通过 -ldflags -X 注入；此处默认值需与发布版本一致
-var appVersion = "2.1.0"
+var appVersion = "2.1.1"
 
 func main() {
 	startedAt = time.Now()

@@ -12,16 +12,30 @@ android {
         applicationId = "com.fileserver.go"
         minSdk = 23
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.1.0"
-        // 与文档支持范围一致：arm64 真机 + x86_64 模拟器（同时避免 32 位设备装上后缺 Go 二进制）
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        versionCode = 4
+        versionName = "2.1.1"
+    }
+
+    // ABI 拆分：arm64 真机包 / x86_64 模拟器包各发一个，universal 兜底（两者合一）
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     buildTypes {
         release {
             // debug 密钥签名 release：免 keystore 直接侧载安装
-            isMinifyEnabled = false
+            // R8 裁剪 + 资源收缩：壳层代码未用反射，依赖均自带 consumer 规则
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.getByName("debug")
         }
     }
