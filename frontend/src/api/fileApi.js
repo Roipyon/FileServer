@@ -50,11 +50,11 @@ export function uploadChunk(formData, onProgress) {
   })
 }
 
-export async function mergeChunks(fileId, fileName, totalChunks) {
+export async function mergeChunks(fileId, fileName, totalChunks, overwrite = false) {
   const res = await fetch(`${BASE}/api/merge-chunks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId, fileName, totalChunks })
+    body: JSON.stringify({ fileId, fileName, totalChunks, overwrite: !!overwrite })
   })
   if (!res.ok) {
     const err = await res.json()

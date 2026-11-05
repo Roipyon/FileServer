@@ -7,7 +7,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -15,17 +14,14 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -75,45 +72,33 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun App() {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var running by remember { mutableStateOf(FileServerManager.isRunning) }
-    var ready by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var showSettings by remember { mutableStateOf(false) }
 
-    // 静默轮询：running=服务进程存活（控制启动/停止互斥），ready=HTTP 可用（控制打开界面）
-    LaunchedEffect(Unit) {
-        while (true) {
-            running = withContext(Dispatchers.IO) { FileServerManager.isRunning }
-            ready = running && withContext(Dispatchers.IO) { serverReady() }
-            delay(if (running) 2000 else 500)
+    MaterialTheme(colorScheme = appColorScheme()) {
+        if (showSettings) {
+            SettingsScreen(onBack = { showSettings = false })
+            return@MaterialTheme
         }
-    }
 
-    // 配色跟随 Web 端主题选择（唯一主题源；未选择时回退系统），色值取自 Web 端 CSS 变量
-    val webTheme by NativeTheme.themeFlow.collectAsState()
-    val dark = webTheme?.let { it == "dark" } ?: isSystemInDarkTheme()
-    val scheme = if (dark) darkColorScheme(
-        primary = Color(0xFFC8843C),
-        onPrimary = Color(0xFF1A1612),
-        background = Color(0xFF1A1612),
-        onBackground = Color(0xFFE8E0D5),
-        surface = Color(0xFF1A1612),
-        onSurface = Color(0xFFE8E0D5),
-    ) else lightColorScheme(
-        primary = Color(0xFFC8843C),
-        onPrimary = Color(0xFFFFFFF5),
-        background = Color(0xFFFAF7F2),
-        onBackground = Color(0xFF2C2420),
-        surface = Color(0xFFFAF7F2),
-        onSurface = Color(0xFF2C2420),
-    )
+        var running by remember { mutableStateOf(FileServerManager.isRunning) }
+        var ready by remember { mutableStateOf(false) }
 
-    MaterialTheme(colorScheme = scheme) {
+        // 静默轮询：running=服务进程存活（控制启动/停止互斥），ready=HTTP 可用（控制打开界面）
+        LaunchedEffect(Unit) {
+            while (true) {
+                running = withContext(Dispatchers.IO) { FileServerManager.isRunning }
+                ready = running && withContext(Dispatchers.IO) { serverReady() }
+                delay(if (running) 2000 else 500)
+            }
+        }
+
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(
-                // targetSdk 35 强制 edge-to-edge：让出系统栏
+                // targetSdk 35 强制 edge-to-edge：safeDrawing 覆盖系统栏与刘海
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(WindowInsets.systemBars.asPaddingValues())
+                    .padding(WindowInsets.safeDrawing.asPaddingValues())
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
@@ -151,6 +136,11 @@ fun App() {
                     enabled = ready,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("打开文件界面") }
+
+                OutlinedButton(
+                    onClick = { showSettings = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("设置") }
             }
         }
     }

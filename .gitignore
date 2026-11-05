@@ -7,6 +7,7 @@ release/
 
 # 运行时数据与缓存
 backend/FileServer-win.exe
+backend/*.log
 backend/config.json
 backend/shared-files/
 backend/temp-*/

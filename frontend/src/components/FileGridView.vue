@@ -27,6 +27,9 @@
           @mouseup="onCardMouseUp"
           @mousemove="updatePosition(file, $event)"
           @mouseleave="onCardMouseLeave"
+          @touchstart="onCardTouchStart(file, $event)"
+          @touchend="onCardTouchEnd"
+          @contextmenu.prevent
         >
           <!-- Selection checkbox -->
           <label class="file-card-check" :class="{ visible: selectionMode }" @click.stop>
@@ -138,6 +141,7 @@ import { useHoverPreview } from '../composables/useHoverPreview.js'
 import { useFilePopover } from '../composables/useFilePopover.js'
 import { useToast } from '../composables/useToast.js'
 import { usePromptDialog } from '../composables/usePromptDialog.js'
+import { useLongPressSelect } from '../composables/useLongPressSelect.js'
 import { getFileIcon, smartDownload, isLAN } from '../utils/helpers.js'
 import { isTextFile, isPreviewSupported, iconTypeClass } from '../utils/fileTypes.js'
 import HoverPreviewPopover from './HoverPreviewPopover.vue'
@@ -232,8 +236,20 @@ async function handleRename(filename) {
  * 卡片点击处理：非选择模式触发预览（选择模式由 mousedown 处理）
  */
 function onCardClick(file, event) {
+  if (longPress.wasLongPress()) return
   if (props.selectionMode) return
   showPreview(file, event)
+}
+
+// ==================== 长按批量选择（触摸） ====================
+const longPress = useLongPressSelect()
+
+function onCardTouchStart(file, event) {
+  longPress.startPress(file.name, event)
+}
+
+function onCardTouchEnd() {
+  longPress.clearPress()
 }
 
 function onCardMouseDown(file, event) {

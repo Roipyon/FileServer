@@ -6,9 +6,20 @@
           <div v-if="dialogState.visible" class="confirm-card">
             <h3 class="confirm-title">{{ dialogState.title }}</h3>
             <p class="confirm-message">{{ dialogState.message }}</p>
+            <label v-if="dialogState.checkboxLabel" class="confirm-checkbox">
+              <input v-model="dialogState.checkboxChecked" type="checkbox" />
+              <span>{{ dialogState.checkboxLabel }}</span>
+            </label>
             <div class="confirm-actions">
               <button class="confirm-btn confirm-btn-cancel" @click="handleCancel">
                 {{ dialogState.cancelText }}
+              </button>
+              <button
+                v-if="dialogState.thirdText"
+                class="confirm-btn confirm-btn-third"
+                @click="handleThird"
+              >
+                {{ dialogState.thirdText }}
               </button>
               <button
                 class="confirm-btn"
@@ -29,7 +40,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog.js'
 
-const { dialogState, handleConfirm, handleCancel } = useConfirmDialog()
+const { dialogState, handleConfirm, handleThird, handleCancel } = useConfirmDialog()
 
 function onKeydown(e) {
   if (!dialogState.value.visible) return
@@ -88,7 +99,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+/* 复选框（应用到全部） */
+.confirm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 20px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.confirm-checkbox input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
 .confirm-btn {
@@ -100,6 +131,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
   border: none;
   transition: all var(--duration-normal) var(--ease-out-expo);
+}
+
+/* 第三按钮：描边样式 */
+.confirm-btn-third {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.confirm-btn-third:hover {
+  background: var(--accent-glow);
+  transform: translateY(-1px);
 }
 
 .confirm-btn-cancel {

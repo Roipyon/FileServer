@@ -1,0 +1,10 @@
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <!-- 系统开屏（Android 12+）：深色模式 -->
+        <item name="android:windowSplashScreenBackground">#1a1612</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/branding</item>
+        <!-- 全面屏：内容延伸进刘海区，配合 Compose safeDrawing insets -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

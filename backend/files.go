@@ -242,7 +242,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fields, files, err := parseMultipartAll(r, sharedFolder, getConfig().MaxUploadSize)
-	_ = fields
+	// overwrite=true 时覆盖同名旧文件（保留新文件），否则自动改名共存（name(1).ext）
+	overwrite := fields["overwrite"] == "true" || fields["overwrite"] == "1"
 	if err != nil {
 		cleanupTemps(files)
 		sendError(w, 500, "文件解析失败: "+err.Error())
@@ -258,12 +259,21 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	results := []map[string]any{}
 	for _, f := range uploaded {
-		target := getUniquePath(sharedFolder, f.FileName)
+		var target string
+		if overwrite {
+			target = filepath.Join(sharedFolder, f.FileName)
+		} else {
+			target = getUniquePath(sharedFolder, f.FileName)
+		}
 		if err := os.Rename(f.TempPath, target); err != nil {
 			os.Remove(f.TempPath)
+			errMsg := "文件保存失败: " + err.Error()
+			if overwrite && isFileLocked(target) {
+				errMsg = "目标文件正在被使用（预览/编辑中），无法覆盖"
+			}
 			results = append(results, map[string]any{
 				"name": f.FileName, "success": false,
-				"error": "文件保存失败: " + err.Error(),
+				"error": errMsg,
 			})
 			continue
 		}
@@ -360,6 +370,7 @@ func handleMergeChunks(w http.ResponseWriter, r *http.Request) {
 	fileId, _ := body["fileId"].(string)
 	fileName, _ := body["fileName"].(string)
 	token, _ := body["token"].(string)
+	overwrite, _ := body["overwrite"].(bool)
 	if fileId == "" || fileName == "" || body["totalChunks"] == nil {
 		sendError(w, 400, "缺少必要参数")
 		return
@@ -377,7 +388,13 @@ func handleMergeChunks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	finalPath := getUniquePath(sharedFolder, fileName)
+	// overwrite=true 时直接写原名（os.Create 截断覆盖旧文件），否则自动改名共存
+	var finalPath string
+	if overwrite && token == "" {
+		finalPath = filepath.Join(sharedFolder, fileName)
+	} else {
+		finalPath = getUniquePath(sharedFolder, fileName)
+	}
 	out, err := os.Create(finalPath)
 	if err != nil {
 		sendError(w, 500, "写入文件失败")

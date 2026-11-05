@@ -70,7 +70,7 @@ git clone https://github.com/Roipyon/FileServer.git
 cd FileServer
 ```
 
-或者直接前往 [Releases](https://github.com/Roipyon/FileServer/releases/tag/v2.0.0) 下载。
+或者直接前往 [Releases](https://github.com/Roipyon/FileServer/releases/tag/v2.1.0) 下载。
 
 ### 启动服务
 
@@ -86,7 +86,7 @@ Copy-Item -Path dist -Destination backend\dist -Recurse -Force
 
 # 3. 构建（需 Go 1.27+）
 cd backend
-go build -ldflags "-s -w -X main.appVersion=2.0.0" -o FileServer-win.exe .
+go build -ldflags "-s -w -X main.appVersion=2.1.0" -o FileServer-win.exe .
 ```
 
 或使用构建脚本：

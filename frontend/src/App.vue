@@ -62,6 +62,13 @@
         hidden
         @change="onMobileGallerySelect"
       />
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        hidden
+        @change="onMobileFilesSelect"
+      />
       <button class="mobile-quick-btn" @click="triggerCamera" title="拍照上传">
         <i class="fas fa-camera"></i>
         <span>拍照</span>
@@ -74,11 +81,37 @@
         <i class="fas fa-paste"></i>
         <span>粘贴</span>
       </button>
+      <!-- 无文字云朵按钮：省横向空间，固定在最右 -->
+      <button class="mobile-quick-btn mobile-quick-btn-cloud" @click="triggerFileSelect" title="选择文件上传">
+        <i class="fas fa-cloud-arrow-up"></i>
+      </button>
     </div>
 
     <!-- Main Content -->
     <main class="main-content" :class="{ 'main-content-full': isUploadPage }">
-      <div class="content-scroll" v-if="!state.loading || isUploadPage">
+      <div
+        ref="scrollRef"
+        class="content-scroll"
+        v-if="!state.loading || isUploadPage"
+        @touchstart="onPtrTouchStart"
+        @touchmove="onPtrTouchMove"
+        @touchend="onPtrTouchEnd"
+        @touchcancel="onPtrTouchEnd"
+      >
+        <!-- Pull-to-Refresh Indicator -->
+        <div
+          class="ptr-indicator"
+          :class="{ 'ptr-active': ptrPulling || ptrRefreshing }"
+          :style="{ height: ptrIndicatorHeight + 'px' }"
+        >
+          <i
+            class="fas"
+            :class="ptrRefreshing ? 'fa-spinner fa-spin' : 'fa-arrow-down'"
+            :style="!ptrRefreshing ? { transform: `rotate(${ptrReady ? 180 : 0}deg)` } : {}"
+          ></i>
+          <span>{{ ptrRefreshing ? '刷新中…' : (ptrReady ? '释放刷新' : '下拉刷新') }}</span>
+        </div>
+
         <!-- Stats Section -->
         <router-view />
       </div>
@@ -198,6 +231,8 @@ const isMobile = computed(() => {
 
 const cameraInputRef = ref(null)
 const galleryInputRef = ref(null)
+const fileInputRef = ref(null)
+const scrollRef = ref(null)
 
 // 用于向 UploadOverlay 传递预选文件
 const pendingUploadFiles = ref(null)
@@ -265,6 +300,10 @@ function triggerGallery() {
   if (galleryInputRef.value) galleryInputRef.value.click()
 }
 
+function triggerFileSelect() {
+  if (fileInputRef.value) fileInputRef.value.click()
+}
+
 function onMobileCameraCapture(e) {
   if (e.target.files && e.target.files.length > 0) {
     pendingUploadFiles.value = Array.from(e.target.files)
@@ -285,6 +324,80 @@ function onMobileGallerySelect(e) {
     showUpload.value = true
   }
   e.target.value = ''
+}
+
+function onMobileFilesSelect(e) {
+  const files = e.target.files
+  if (files && files.length > 0) {
+    pendingUploadFiles.value = Array.from(files)
+    showUpload.value = true
+  }
+  e.target.value = ''
+}
+
+// ==================== 下拉刷新 ====================
+const PTR_THRESHOLD = 64 // 触发刷新的下拉距离(px)
+
+const ptrPulling = ref(false)     // 正在拉动
+const ptrReady = ref(false)       // 达到释放阈值
+const ptrRefreshing = ref(false)  // 刷新中
+const ptrPullDistance = ref(0)
+const ptrStartY = ref(0)
+const ptrTracking = ref(false)
+
+const ptrIndicatorHeight = computed(() => {
+  if (ptrRefreshing.value) return PTR_THRESHOLD * 0.75
+  if (!ptrPulling.value) return 0
+  // 阻尼：越拉越紧
+  return Math.min(ptrPullDistance.value * 0.5, PTR_THRESHOLD)
+})
+
+function onPtrTouchStart(e) {
+  if (ptrRefreshing.value) return
+  const el = scrollRef.value
+  if (!el || el.scrollTop > 0) {
+    ptrTracking.value = false
+    return
+  }
+  ptrTracking.value = true
+  ptrStartY.value = e.touches[0].clientY
+  ptrPullDistance.value = 0
+}
+
+function onPtrTouchMove(e) {
+  if (!ptrTracking.value || ptrRefreshing.value) return
+  const dy = e.touches[0].clientY - ptrStartY.value
+  const el = scrollRef.value
+  // 拉动过程中回到非顶部，或向上滑则取消追踪
+  if (dy <= 0 || (el && el.scrollTop > 0)) {
+    ptrPulling.value = false
+    ptrReady.value = false
+    ptrPullDistance.value = 0
+    return
+  }
+  ptrPullDistance.value = dy
+  ptrPulling.value = true
+  ptrReady.value = dy >= PTR_THRESHOLD
+  // 阻止浏览器原生下拉刷新/橡皮筋
+  if (e.cancelable) e.preventDefault()
+}
+
+async function onPtrTouchEnd() {
+  if (!ptrTracking.value) return
+  ptrTracking.value = false
+  ptrPulling.value = false
+  ptrPullDistance.value = 0
+  if (ptrReady.value && !ptrRefreshing.value) {
+    ptrReady.value = false
+    ptrRefreshing.value = true
+    try {
+      await Promise.resolve(handleRefresh())
+      // 最短展示 400ms，避免闪烁
+      await new Promise((r) => setTimeout(r, 400))
+    } finally {
+      ptrRefreshing.value = false
+    }
+  }
 }
 
 async function handleGenerateUploadToken() {
@@ -432,6 +545,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 24px;
+  padding-left: max(24px, env(safe-area-inset-left, 0px));
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
   gap: 20px;
   flex-shrink: 0;
   z-index: 100;
@@ -632,6 +747,33 @@ onUnmounted(() => {
   overflow-x: hidden;
   padding: 24px;
   scroll-behavior: smooth;
+  overscroll-behavior-y: contain; /* 禁用浏览器原生下拉刷新，交由自定义 PTR 处理 */
+}
+
+/* --- Pull-to-Refresh Indicator ------------------------------ */
+.ptr-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  height: 0;
+  color: var(--text-muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  user-select: none;
+  pointer-events: none;
+  transition: height 180ms var(--ease-out-expo);
+}
+
+.ptr-indicator.ptr-active {
+  transition: none; /* 拉动过程中实时跟手，松手后恢复过渡 */
+}
+
+.ptr-indicator i {
+  color: var(--accent-dim);
+  font-size: 0.85rem;
+  transition: transform 180ms var(--ease-out-expo);
 }
 
 /* --- Loading State ----------------------------------------- */
@@ -764,7 +906,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -797,6 +939,29 @@ onUnmounted(() => {
   color: var(--accent-dim);
 }
 
+/* 云朵上传按钮：无文字、金色强调、固定最右 */
+.mobile-quick-btn-cloud {
+  padding: 8px 13px;
+  border-color: var(--border-accent);
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.mobile-quick-btn-cloud i {
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.mobile-quick-btn-cloud:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-inverse);
+}
+
+.mobile-quick-btn-cloud:hover i {
+  color: var(--text-inverse);
+}
+
 /* --- Responsive: Tablet ------------------------------------ */
 @media (max-width: 1024px) {
   .topbar-nav-item {
@@ -810,6 +975,9 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .topbar {
     padding: 16px;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
     gap: 10px;
     flex-wrap: wrap;
     height: auto;
@@ -849,7 +1017,7 @@ onUnmounted(() => {
     padding: 10px 16px;
     gap: 12px;
     flex-wrap: wrap;
-    bottom: 80px;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
 
   .batch-bar-count {

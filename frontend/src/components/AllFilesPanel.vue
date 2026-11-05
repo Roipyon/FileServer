@@ -2,7 +2,7 @@
     <!-- Files Section -->
     <div>
         <div class="section-header">
-        <h3>所有文件</h3>
+        <h3>{{ sectionTitle }}</h3>
         <p>{{ displayFileCount }} 个文件</p>
         </div>
 
@@ -77,6 +77,12 @@ const FILTER_OPTIONS = [
 ]
 
 const activeFilter = ref('all')
+
+// 标题跟随当前筛选类别（"全部"→"所有文件"，"图片"→"图片"…）
+const sectionTitle = computed(() => {
+  const opt = FILTER_OPTIONS.find(f => f.key === activeFilter.value)
+  return opt && opt.key !== 'all' ? opt.label : '所有文件'
+})
 
 function setFilter(key) {
   activeFilter.value = key

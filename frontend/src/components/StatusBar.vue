@@ -105,13 +105,14 @@ onUnmounted(() => {
 
 <style scoped>
 .status-bar {
-  height: 36px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  height: calc(36px + env(safe-area-inset-bottom, 0px));
+  padding: 0 max(20px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px);
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
   font-size: 0.75rem;
   color: var(--text-muted);
   flex-shrink: 0;

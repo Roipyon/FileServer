@@ -37,16 +37,45 @@ var preferredPrefixes = []string{
 	"172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
 }
 
+// getLocalIPs 合并全部来源（单链回退在"热点无外网路由"等场景会全链失败）：
+// 1. FS_LOCAL_IPS 环境变量（安卓端由壳进程枚举注入，覆盖热点接口 swlan0/ap0 等）
+// 2. netlink 枚举 / UDP 路由探测（不发包）/ /proc 兜底
+// 3. 仍为空时回退 hostname 解析
 func getLocalIPs() []string {
-	ips := getLocalIPsNetlink()
+	ips := getIPsFromEnv()
+	ips = append(ips, getLocalIPsNetlink()...)
+	ips = append(ips, getLocalIPsUDPDial()...)
+	ips = append(ips, getLocalIPsProc()...)
 	if len(ips) == 0 {
-		// Android untrusted_app 域限制 netlink 枚举 → UDP connect 路由探测（不发包）
-		ips = getLocalIPsUDPDial()
+		if host, err := os.Hostname(); err == nil {
+			if addrs, err := net.LookupHost(host); err == nil {
+				for _, a := range addrs {
+					ip := net.ParseIP(a)
+					if ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+						ips = append(ips, ip.String())
+					}
+				}
+			}
+		}
 	}
-	if len(ips) == 0 {
-		ips = getLocalIPsProc()
+	return dedupeAndSortIPs(ips)
+}
+
+// getIPsFromEnv — FS_LOCAL_IPS 环境变量（安卓端注入，逗号分隔 IPv4 列表）
+func getIPsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("FS_LOCAL_IPS"))
+	if raw == "" {
+		return nil
 	}
-	return ips
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		ip := net.ParseIP(part)
+		if ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+			out = append(out, ip.String())
+		}
+	}
+	return out
 }
 
 // getLocalIPsUDPDial — 对公网地址发起 UDP connect（仅内核路由查询，不发包），

@@ -22,7 +22,7 @@
             <i class="fas fa-cloud-arrow-up"></i>
           </div>
           <h4>拖放文件到此处</h4>
-          <p>或点击下方按钮选择文件</p>
+          <p>或点击下方按钮选择，可多次添加</p>
           <div class="upload-btn-group">
             <label class="upload-browse-btn">
               <i class="fas fa-folder-open"></i>&nbsp; 选择文件
@@ -40,8 +40,8 @@
         <!-- File queue -->
         <div v-if="uploadFiles.length > 0" class="upload-queue">
           <div
-            v-for="(item, idx) in uploadFiles"
-            :key="idx"
+            v-for="item in uploadFiles"
+            :key="item.uid"
             class="upload-queue-item"
             :class="{ 'item-error': item.status === 'error' }"
           >
@@ -63,6 +63,15 @@
               @click="retryItem(item)"
             >
               <i class="fas fa-rotate"></i>
+            </button>
+            <!-- Remove button（上传过程锁定，避免移除正在上传的条目） -->
+            <button
+              v-if="!uploading && item.status !== 'uploading'"
+              class="upload-remove-btn"
+              title="移除此文件"
+              @click="removeFile(item)"
+            >
+              <i class="fas fa-xmark"></i>
             </button>
           </div>
         </div>
@@ -104,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useUpload } from '../composables/useUpload.js'
 import { formatFileSize } from '../utils/helpers.js'
 
@@ -113,24 +122,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'upload-complete'])
-const { uploading, uploadProgress, uploadStatus, uploadSpeed, uploadEta, uploadFiles, addFiles, clearFiles, startUpload, retryItem, retryAll } = useUpload()
+const { uploading, uploadProgress, uploadStatus, uploadSpeed, uploadEta, uploadFiles, addFiles, removeFile, clearFiles, startUpload, retryItem, retryAll } = useUpload()
 
-// 接收外部传入的待上传文件（如移动端拍照/相册），自动开始上传并关闭弹窗
-watch(() => props.pendingFiles, async (files) => {
+// 接收外部传入的待上传文件（移动端拍照/相册/文件选择）：
+// 仅加入队列，不自动上传——用户可在弹窗内继续逐个添加，统一按"开始上传"提交
+watch(() => props.pendingFiles, (files) => {
   if (files && files.length > 0) {
     addFiles(files)
-    // 等待 DOM 更新后自动上传
-    await nextTick()
-    if (!uploading.value && uploadFiles.value.some(f => f.status === 'waiting')) {
-      const ok = await startUpload()
-      if (ok) {
-        const names = getUploadedNames()
-        clearFiles()
-        emit('upload-complete', names)
-        // 自动关闭弹窗（延时让用户看到完成状态）
-        setTimeout(() => close(), 300)
-      }
-    }
   }
 }, { immediate: true })
 
@@ -172,15 +170,6 @@ function getUploadedNames() {
   return uploadFiles.value
     .filter(item => item.status === 'success')
     .map(item => item.name)
-}
-
-async function autoUpload() {
-  const ok = await startUpload()
-  if (ok) {
-    const names = getUploadedNames()
-    clearFiles()
-    emit('upload-complete', names)
-  }
 }
 
 async function start() {
@@ -518,6 +507,29 @@ function statusLabel(s) {
   background: rgba(255, 193, 7, 0.15);
   border-color: var(--warning);
   transform: rotate(180deg);
+}
+
+/* Remove button（单个待上传文件移除） */
+.upload-remove-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  transition: all var(--duration-fast) var(--ease-out-expo);
+  flex-shrink: 0;
+}
+
+.upload-remove-btn:hover {
+  background: var(--danger-glow);
+  border-color: rgba(255, 85, 85, 0.25);
+  color: var(--danger);
 }
 
 /* Retry all */

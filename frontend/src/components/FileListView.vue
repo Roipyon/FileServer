@@ -19,11 +19,12 @@
           <thead>
             <tr>
               <th class="col-check" v-if="selectionMode"></th>
+              <th class="col-actions">操作</th>
               <th @click="setSort('name')">
                 名称
                 <i class="fas sort-icon" :class="sortIcon('name')"></i>
               </th>
-              <th @click="setSort('size')">
+              <th @click="setSort('size')" class="col-size">
                 大小
                 <i class="fas sort-icon" :class="sortIcon('size')"></i>
               </th>
@@ -31,7 +32,6 @@
                 修改时间
                 <i class="fas sort-icon" :class="sortIcon('mtime')"></i>
               </th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -46,6 +46,9 @@
               @mouseup="onRowMouseUp"
               @mousemove="updatePosition(file, $event)"
               @mouseleave="hidePreview"
+              @touchstart="onRowTouchStart(file, $event)"
+              @touchend="onRowTouchEnd"
+              @contextmenu.prevent
             >
               <td class="col-check" v-if="selectionMode">
                 <label class="file-card-check list-check" @click.stop>
@@ -57,17 +60,7 @@
                   <span class="checkmark"></span>
                 </label>
               </td>
-              <td>
-                <div class="cell-name-inner">
-                  <span class="mini-file-icon" :class="iconTypeClass(file.name)">
-                    <i :class="getFileIcon(file.name)"></i>
-                  </span>
-                  <span class="file-name-text" :title="file.name">{{ file.name }}</span>
-                </div>
-              </td>
-              <td>{{ file.size || '-' }}</td>
-              <td class="col-mtime">{{ formatDate(file.modified) }}</td>
-              <td>
+              <td class="col-actions">
                 <div class="cell-actions" @click.stop>
                   <button
                     class="row-action-btn row-action-dl"
@@ -95,6 +88,16 @@
                   </div>
                 </div>
               </td>
+              <td>
+                <div class="cell-name-inner">
+                  <span class="mini-file-icon" :class="iconTypeClass(file.name)">
+                    <i :class="getFileIcon(file.name)"></i>
+                  </span>
+                  <span class="file-name-text" :title="file.name">{{ file.name }}</span>
+                </div>
+              </td>
+              <td class="col-size">{{ file.size || '-' }}</td>
+              <td class="col-mtime">{{ formatDate(file.modified) }}</td>
             </tr>
           </tbody>
         </table>
@@ -161,6 +164,7 @@ import { useHoverPreview } from '../composables/useHoverPreview.js'
 import { useFilePopover } from '../composables/useFilePopover.js'
 import { useToast } from '../composables/useToast.js'
 import { usePromptDialog } from '../composables/usePromptDialog.js'
+import { useLongPressSelect } from '../composables/useLongPressSelect.js'
 import { parseFileSize, getFileIcon, smartDownload, isLAN } from '../utils/helpers.js'
 import { isTextFile, isPreviewSupported, iconTypeClass } from '../utils/fileTypes.js'
 import HoverPreviewPopover from './HoverPreviewPopover.vue'
@@ -296,8 +300,20 @@ async function handleRename(filename) {
 }
 
 function onRowClick(file, event) {
+  if (longPress.wasLongPress()) return
   if (props.selectionMode) return
   showPreview(file, event)
+}
+
+// ==================== 长按批量选择（触摸） ====================
+const longPress = useLongPressSelect()
+
+function onRowTouchStart(file, event) {
+  longPress.startPress(file.name, event)
+}
+
+function onRowTouchEnd() {
+  longPress.clearPress()
 }
 
 function onRowMouseDown(file, event) {
@@ -686,28 +702,36 @@ watch(() => props.groups, async () => {
 
 /* --- Responsive: Mobile --------------------------------- */
 @media (max-width: 768px) {
-  .table-wrapper {
-    overflow-x: auto;
-  }
-
-  .file-table {
-    min-width: 500px;
-  }
-
+  /* 操作列已前置，无需横向滚动；小屏隐藏次要列 */
   .file-table thead th,
   .file-table tbody td {
-    padding: 12px 16px;
+    padding: 12px 10px;
     font-size: 0.8rem;
   }
 
+  .file-table thead th.col-mtime,
+  .file-table tbody td.col-mtime {
+    display: none;
+  }
+
   .file-name-text {
-    max-width: 180px;
+    max-width: 150px;
     font-size: 0.75rem;
   }
 
   .cell-actions {
-    flex-direction: column;
-    gap: 4px;
+    flex-direction: row;
+    gap: 2px;
+  }
+
+  .row-action-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 0.75rem;
+  }
+
+  .mini-file-icon {
+    display: none;
   }
 
   .group-header-label {
@@ -717,8 +741,13 @@ watch(() => props.groups, async () => {
 
 /* --- Responsive: Small Phone ------------------------------- */
 @media (max-width: 480px) {
+  .file-table thead th.col-size,
+  .file-table tbody td.col-size {
+    display: none;
+  }
+
   .file-name-text {
-    max-width: 120px;
+    max-width: none;
   }
 }
 </style>
