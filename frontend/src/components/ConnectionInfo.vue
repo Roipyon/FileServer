@@ -196,6 +196,81 @@
               </TransitionGroup>
             </div>
 
+            <!-- ====== 区块四：软件更新 ====== -->
+            <div class="conn-section">
+              <div class="conn-section-title">
+                <i class="fas fa-arrows-rotate"></i> 软件更新
+              </div>
+              <div class="conn-update-card">
+                <div class="conn-update-versions">
+                  <span>服务端 <b>v{{ state.serverVersion || '?' }}</b></span>
+                  <span>
+                    前端 <b>v{{ state.webVersion || '?' }}</b>
+                    <em v-if="state.webOverride" class="conn-update-badge">热更新</em>
+                  </span>
+                </div>
+
+                <div v-if="updateState.error" class="conn-update-error">
+                  <i class="fas fa-triangle-exclamation"></i> {{ updateState.error }}
+                </div>
+
+                <!-- 可用更新列表 -->
+                <template v-if="updateState.checked && updateState.available">
+                  <div v-if="updateState.available.web" class="conn-update-row">
+                    <div class="conn-update-info">
+                      <span class="conn-update-name">前端 v{{ updateState.available.web.version }}</span>
+                      <span v-if="updateState.available.web.notes" class="conn-update-notes">{{ updateState.available.web.notes }}</span>
+                    </div>
+                    <button class="conn-update-btn" :disabled="!!updateState.applying" @click="doApplyWeb">
+                      <i class="fas fa-cloud-arrow-down"></i>
+                      {{ updateState.applying === 'web' ? '更新中…' : '更新前端' }}
+                    </button>
+                  </div>
+
+                  <div v-if="updateState.available.server" class="conn-update-row">
+                    <div class="conn-update-info">
+                      <span class="conn-update-name">服务端 v{{ updateState.available.server.version }}</span>
+                      <span class="conn-update-notes">桌面端自替换并重启；安卓端请用整包</span>
+                    </div>
+                    <button class="conn-update-btn" :disabled="!!updateState.applying" @click="doApplyServer">
+                      <i class="fas fa-rotate"></i>
+                      {{ updateState.applying === 'server' ? '重启中…' : '更新并重启' }}
+                    </button>
+                  </div>
+
+                  <div v-if="updateState.available.android" class="conn-update-row">
+                    <div class="conn-update-info">
+                      <span class="conn-update-name">APP 整包 v{{ updateState.available.android.version }}</span>
+                      <span class="conn-update-notes">下载后在系统安装器中确认</span>
+                    </div>
+                    <a class="conn-update-btn" :href="updateState.available.android.url" download>
+                      <i class="fab fa-android"></i> 下载 APK
+                    </a>
+                  </div>
+                </template>
+
+                <div class="conn-update-actions">
+                  <button class="conn-update-check" :disabled="updateState.checking || !!updateState.applying" @click="doCheck">
+                    <i class="fas fa-magnifying-glass"></i>
+                    {{ updateState.checking ? '检查中…' : '检查更新' }}
+                  </button>
+                  <button
+                    v-if="state.webOverride"
+                    class="conn-update-rollback"
+                    :disabled="!!updateState.applying"
+                    @click="doRollback"
+                  >
+                    <i class="fas fa-rotate-left"></i> 恢复内嵌版本
+                  </button>
+                </div>
+
+                <p class="conn-update-hint">
+                  <i class="fas fa-info-circle"></i>
+                  将 update-manifest.json 与更新包传到共享目录根部即可发现更新；前端更新刷新即生效
+                </p>
+              </div>
+            </div>
+
             <!-- 底部提示 -->
             <p class="conn-global-hint">
               <i class="fas fa-info-circle"></i>
@@ -217,9 +292,10 @@
 
 <script setup>
 import { ref, reactive, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useServerInfo } from '../composables/useServerInfo.js'
+import { useServerInfo } from '../composables/useServerInfo'
+import { useUpdate } from '../composables/useUpdate'
 import { normalizeUrl, isLink } from '../utils/helpers.js'
-import { useToast } from '../composables/useToast.js'
+import { useToast } from '../composables/useToast'
 
 const toast = useToast()
 
@@ -230,6 +306,23 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const { state, fetchInfo, generateQR, collapse, copyUrl, resetCache } = useServerInfo()
+const { state: updateState, check, applyWeb, applyServer, rollback } = useUpdate()
+
+function doCheck() {
+  check()
+}
+
+async function doApplyWeb() {
+  await applyWeb()
+}
+
+async function doApplyServer() {
+  await applyServer(state.serverVersion)
+}
+
+async function doRollback() {
+  await rollback()
+}
 const copied = ref(false)
 let copyTimer = null
 
@@ -905,6 +998,162 @@ onUnmounted(() => {
 .conn-visit-btn:hover {
   background: var(--accent-subtle);
   color: var(--accent-glow);
+}
+
+/* --- Update card --- */
+.conn-update-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+}
+
+.conn-update-versions {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.conn-update-versions b {
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.conn-update-badge {
+  font-style: normal;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-inverse);
+  vertical-align: 1px;
+  margin-left: 4px;
+}
+
+.conn-update-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--danger);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.conn-update-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.conn-update-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conn-update-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.conn-update-notes {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.conn-update-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-accent);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 150ms var(--ease-out-expo);
+  white-space: nowrap;
+}
+
+.conn-update-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.conn-update-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.conn-update-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.conn-update-check,
+.conn-update-rollback {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-radius: 10px;
+  border: none;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 150ms var(--ease-out-expo);
+}
+
+.conn-update-check:hover:not(:disabled) {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.conn-update-rollback:hover:not(:disabled) {
+  background: var(--danger-glow);
+  color: var(--danger);
+}
+
+.conn-update-check:disabled,
+.conn-update-rollback:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.conn-update-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.conn-update-hint i {
+  margin-top: 2px;
+  color: var(--accent-dim);
 }
 
 /* --- Global hint --- */

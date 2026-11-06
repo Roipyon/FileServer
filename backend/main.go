@@ -17,12 +17,16 @@ import (
 )
 
 // appVersion 由构建脚本通过 -ldflags -X 注入；此处默认值需与发布版本一致
-var appVersion = "2.1.1"
+var appVersion = "2.2.0"
+
+// httpServer 由 main 赋值，自替换（方案 D）重启前用于释放监听端口
+var httpServer *http.Server
 
 func main() {
 	startedAt = time.Now()
 	loadConfig()
 	initDataDirectories()
+	cleanupOldBinary()
 
 	// 启动时清理临时目录
 	cleanDirectory(chunkTempDir, "清理残留分片")
@@ -47,6 +51,7 @@ func main() {
 	actualPort.Store(int64(ln.Addr().(*net.TCPAddr).Port))
 
 	srv := &http.Server{Handler: createHandler()}
+	httpServer = srv
 	go srv.Serve(ln)
 
 	printAccessInfo(actualPort.Load())

@@ -1,16 +1,43 @@
+/** 文件列表条目（对应后端 handleFileList 输出） */
+export interface FileEntry {
+  name: string
+  /** 后端格式化好的大小文本 */
+  size: string
+  sizeInBytes: number
+  modified: string
+  mtimeMs: number
+  downloadUrl: string
+}
+
+export interface UploadResult {
+  message?: string
+  results: Array<{ success: boolean; name?: string; error?: string }>
+}
+
+export interface MergeChunksResult {
+  success: boolean
+  name?: string
+  error?: string
+}
+
 const BASE = window.location.origin
 
-export async function fetchFiles() {
-  const res = await fetch(`${BASE}/api/files`)
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
-    try { const data = await res.json(); if (data.error) msg = data.error } catch {}
-    throw new Error(msg)
+async function readError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const data = await res.json()
+    return new Error(data.error || fallback)
+  } catch {
+    return new Error(fallback)
   }
+}
+
+export async function fetchFiles(): Promise<FileEntry[]> {
+  const res = await fetch(`${BASE}/api/files`)
+  if (!res.ok) throw await readError(res, `HTTP ${res.status}`)
   return res.json()
 }
 
-export async function deleteFile(name) {
+export async function deleteFile(name: string): Promise<{ success?: boolean }> {
   const res = await fetch(`${BASE}/api/delete/${encodeURIComponent(name)}`, {
     method: 'DELETE'
   })
@@ -19,7 +46,10 @@ export async function deleteFile(name) {
   return data
 }
 
-export function uploadChunk(formData, onProgress) {
+export function uploadChunk(
+  formData: FormData,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<{ success: boolean }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${BASE}/api/upload-chunk`, true)
@@ -50,26 +80,28 @@ export function uploadChunk(formData, onProgress) {
   })
 }
 
-export async function mergeChunks(fileId, fileName, totalChunks, overwrite = false) {
+export async function mergeChunks(
+  fileId: string,
+  fileName: string,
+  totalChunks: number,
+  overwrite = false
+): Promise<MergeChunksResult> {
   const res = await fetch(`${BASE}/api/merge-chunks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fileId, fileName, totalChunks, overwrite: !!overwrite })
   })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || '合并失败')
-  }
+  if (!res.ok) throw await readError(res, '合并失败')
   return res.json()
 }
 
 /**
  * 传统整文件上传（用于内网直接上传）
- * @param {FormData} formData - 包含 files 字段的 FormData
- * @param {function} onProgress - 进度回调 (loaded, total)
- * @returns {Promise<{message: string, results: Array}>}
  */
-export function uploadFile(formData, onProgress) {
+export function uploadFile(
+  formData: FormData,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${BASE}/api/upload`, true)
@@ -83,7 +115,7 @@ export function uploadFile(formData, onProgress) {
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          const result = JSON.parse(xhr.responseText)
+          const result: UploadResult = JSON.parse(xhr.responseText)
           resolve(result)
         } catch {
           reject(new Error('解析响应失败'))
@@ -93,7 +125,9 @@ export function uploadFile(formData, onProgress) {
         try {
           const err = JSON.parse(xhr.responseText)
           if (err.error) msg = err.error
-        } catch {}
+        } catch {
+          // 保留默认 HTTP 状态消息
+        }
         reject(new Error(msg))
       }
     })
@@ -104,17 +138,17 @@ export function uploadFile(formData, onProgress) {
   })
 }
 
-export function getDownloadUrl(name) {
+export function getDownloadUrl(name: string): string {
   return `${BASE}/download/${encodeURIComponent(name)}`
 }
 
-export function getRawUrl(name) {
+export function getRawUrl(name: string): string {
   return `${BASE}/api/raw/${encodeURIComponent(name)}`
 }
 
 // ==================== ZIP 批量下载 ====================
 
-export async function startZipTask(files, zipName) {
+export async function startZipTask(files: string[], zipName: string): Promise<{ taskId: string }> {
   const res = await fetch(`${BASE}/api/download-zip`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -125,18 +159,20 @@ export async function startZipTask(files, zipName) {
   return data
 }
 
-export async function getZipProgress(taskId) {
+export async function getZipProgress(
+  taskId: string
+): Promise<{ state: string; percent?: number; processedFiles?: number; totalFiles?: number; currentFile?: string; err?: string }> {
   const res = await fetch(`${BASE}/api/zip-progress/${encodeURIComponent(taskId)}`)
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || '查询进度失败')
   return data
 }
 
-export function getZipDownloadUrl(taskId) {
+export function getZipDownloadUrl(taskId: string): string {
   return `${BASE}/api/zip-download/${encodeURIComponent(taskId)}`
 }
 
-export async function cancelZipTask(taskId) {
+export async function cancelZipTask(taskId: string): Promise<{ success?: boolean }> {
   const res = await fetch(`${BASE}/api/zip-cancel/${encodeURIComponent(taskId)}`, {
     method: 'DELETE'
   })
@@ -145,7 +181,7 @@ export async function cancelZipTask(taskId) {
   return data
 }
 
-export async function renameFile(oldName, newName) {
+export async function renameFile(oldName: string, newName: string): Promise<{ success?: boolean }> {
   const res = await fetch(`${BASE}/api/files/${encodeURIComponent(oldName)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -156,7 +192,7 @@ export async function renameFile(oldName, newName) {
   return data
 }
 
-export async function saveFile(name, content) {
+export async function saveFile(name: string, content: string): Promise<{ success?: boolean }> {
   const res = await fetch(`${BASE}/api/files/${encodeURIComponent(name)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -171,10 +207,10 @@ export async function saveFile(name, content) {
 
 /**
  * 获取文件的缩略图/摘要信息
- * @param {string} name - 文件名
- * @returns {Promise<{type: string, data: any}>}
  */
-export async function fetchThumbnail(name) {
+export async function fetchThumbnail(
+  name: string
+): Promise<{ type: string; data: unknown } | null> {
   const res = await fetch(`${BASE}/api/thumbnail/${encodeURIComponent(name)}`)
   if (!res.ok) return null
   return res.json()
@@ -184,11 +220,11 @@ export async function fetchThumbnail(name) {
 
 /**
  * 生成文件分享链接
- * @param {string} file - 文件名
- * @param {'once'|'persistent'} mode - 一次性/持续有效
- * @returns {Promise<{token: string, url: string, file: string, mode: string}>}
  */
-export async function generateShareLink(file, mode = 'once') {
+export async function generateShareLink(
+  file: string,
+  mode: 'once' | 'persistent' = 'once'
+): Promise<{ token: string; url: string; file: string; mode: string }> {
   const res = await fetch(`${BASE}/api/share/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -201,10 +237,8 @@ export async function generateShareLink(file, mode = 'once') {
 
 /**
  * 获取分享链接的完整访问 URL
- * @param {string} token
- * @returns {string}
  */
-export function getShareUrl(token) {
+export function getShareUrl(token: string): string {
   return `${BASE}/api/share/${encodeURIComponent(token)}`
 }
 
@@ -212,9 +246,8 @@ export function getShareUrl(token) {
 
 /**
  * 生成单向上传链接（服务端）
- * @returns {Promise<{token: string, url: string, expiresAt: number}>}
  */
-export async function generateUploadToken() {
+export async function generateUploadToken(): Promise<{ token: string; url: string; expiresAt: number }> {
   const res = await fetch(`${BASE}/api/upload-token/generate`, {
     method: 'POST'
   })

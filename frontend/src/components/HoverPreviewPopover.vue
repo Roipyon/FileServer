@@ -62,7 +62,7 @@
 
 <script setup>
 import { computed, watch, ref, nextTick } from 'vue'
-import { useHoverPreview } from '../composables/useHoverPreview.js'
+import { useHoverPreview } from '../composables/useHoverPreview'
 import { formatFileSize } from '../utils/helpers.js'
 
 const { previewState, onPopoverEnter, onPopoverLeave, setPopoverElement, repositionPopover } = useHoverPreview()

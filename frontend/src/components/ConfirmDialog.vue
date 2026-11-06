@@ -38,7 +38,7 @@
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
-import { useConfirmDialog } from '../composables/useConfirmDialog.js'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 
 const { dialogState, handleConfirm, handleThird, handleCancel } = useConfirmDialog()
 

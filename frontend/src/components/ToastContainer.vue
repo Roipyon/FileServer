@@ -15,7 +15,7 @@
 </template>
 
 <script setup>
-import { toasts } from '../composables/useToast.js'
+import { toasts } from '../composables/useToast'
 </script>
 
 <style scoped>

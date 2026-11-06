@@ -17,6 +17,7 @@ var typeLimits = map[string]int{
 	"list":      300,
 	"thumbnail": 500,
 	"share":     120,
+	"update":    60,
 	"other":     300,
 }
 
@@ -33,6 +34,8 @@ func getRateLimitType(url string) string {
 		return "thumbnail"
 	case strings.HasPrefix(url, "/api/share/"):
 		return "share"
+	case strings.HasPrefix(url, "/api/update"):
+		return "update"
 	}
 	return "other"
 }

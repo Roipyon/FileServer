@@ -114,7 +114,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useUpload } from '../composables/useUpload.js'
+import { useUpload } from '../composables/useUpload'
 import { formatFileSize } from '../utils/helpers.js'
 
 const props = defineProps({

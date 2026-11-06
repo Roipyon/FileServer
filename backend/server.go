@@ -218,11 +218,14 @@ func serveServerInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, map[string]any{
 		"urls": urls, "publicUrl": publicUrl, "port": port,
-		"uptime": time.Since(startedAt).Seconds(),
+		"uptime":      time.Since(startedAt).Seconds(),
+		"version":     appVersion,
+		"webVersion":  currentWebVersion(),
+		"webOverride": webDistActive(),
 	})
 }
 
-// ==================== 静态资源（go:embed）====================
+// ==================== 静态资源（web-dist 磁盘层优先，go:embed 兜底）====================
 
 func serveStatic(w http.ResponseWriter, r *http.Request, pathname string) {
 	var name string
@@ -230,6 +233,17 @@ func serveStatic(w http.ResponseWriter, r *http.Request, pathname string) {
 		name = "dist/index.html"
 	} else {
 		name = "dist" + path.Clean("/"+pathname)
+	}
+	rel := strings.TrimPrefix(name, "dist/")
+
+	// 方案 B 磁盘热更新层：BASE_DIR/web-dist 存在同名文件则优先。
+	// 按请求 stat，换装即生效、无需重启；Clean 已把 .. 收敛到根，但磁盘是真实文件系统，
+	// 这里额外拒绝分隔符变体与盘符，防借道磁盘层穿越。
+	if isStaticRelSafe(rel) {
+		if data, err := os.ReadFile(filepath.Join(webDistDir(), rel)); err == nil {
+			writeStatic(w, rel, data)
+			return
+		}
 	}
 
 	data, err := distFS.ReadFile(name)
@@ -245,13 +259,28 @@ func serveStatic(w http.ResponseWriter, r *http.Request, pathname string) {
 		w.Write([]byte("服务器错误"))
 		return
 	}
+	writeStatic(w, rel, data)
+}
 
-	ext := strings.ToLower(filepath.Ext(name))
+func isStaticRelSafe(rel string) bool {
+	return rel != "" && !strings.Contains(rel, "..") &&
+		!strings.ContainsAny(rel, "\\:")
+}
+
+// writeStatic — 内容类型 + 缓存策略：vite 哈希资产长缓存 immutable，
+// 入口页与未哈希资源 no-cache（保证前端热更新刷新即生效）
+func writeStatic(w http.ResponseWriter, rel string, data []byte) {
+	ext := strings.ToLower(filepath.Ext(rel))
 	contentType := mimeTypes[ext]
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
+	if strings.HasPrefix(rel, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	w.WriteHeader(200)
 	w.Write(data)
 }
@@ -330,6 +359,14 @@ func createHandler() http.Handler {
 			handleThumbnail(w, r, pathname)
 		case pathname == "/api/disk-status":
 			serveDiskStatus(w, r)
+		case pathname == "/api/update/manifest" && r.Method == http.MethodGet:
+			handleUpdateManifest(w, r)
+		case pathname == "/api/update/apply/web" && r.Method == http.MethodPost:
+			handleApplyWebUpdate(w, r)
+		case pathname == "/api/update/apply/server" && r.Method == http.MethodPost:
+			handleApplyServerUpdate(w, r)
+		case pathname == "/api/update/rollback/web" && r.Method == http.MethodPost:
+			handleRollbackWebUpdate(w, r)
 		case pathname == "/api/server-info":
 			serveServerInfo(w, r)
 		case pathname == "/api/config" && r.Method == http.MethodGet:

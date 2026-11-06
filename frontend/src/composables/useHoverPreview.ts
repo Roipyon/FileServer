@@ -1,31 +1,51 @@
 import { reactive, ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { getRawUrl } from '../api/fileApi.js'
+import { getRawUrl, type FileEntry } from '../api/fileApi'
 import { isImageFile, isTextFile, isVideoFile, isAudioFile, isArchiveFile } from '../utils/fileTypes.js'
 import { getFileIcon } from '../utils/helpers.js'
 
-const previewState = reactive({
+type PreviewType = 'image' | 'text' | 'video' | 'audio' | 'archive' | 'fallback' | 'other' | ''
+type FallbackKind = '' | 'video' | 'audio' | 'archive' | 'file'
+
+interface PreviewState {
+  visible: boolean
+  x: number
+  y: number
+  _rawClientX: number   // 鼠标坐标
+  _rawClientY: number
+  type: PreviewType
+  content: string       // text preview content / archive filename
+  imageUrl: string      // image / thumbnail data URL
+  fileName: string
+  icon: string
+  loading: boolean
+  extraData: unknown    // archive file entries array
+  fallbackType: FallbackKind
+  fileSize: string      // formatted file size string
+}
+
+const previewState = reactive<PreviewState>({
   visible: false,
   x: 0,
   y: 0,
-  _rawClientX: 0,   // 鼠标坐标
+  _rawClientX: 0,
   _rawClientY: 0,
-  type: '',         // 'image' | 'text' | 'archive' | 'fallback'
-  content: '',      // text preview content / archive filename
-  imageUrl: '',     // image / thumbnail data URL
+  type: '',
+  content: '',
+  imageUrl: '',
   fileName: '',
   icon: '',
   loading: false,
-  extraData: null,     // archive file entries array
-  fallbackType: '',    // 'video' | 'audio' | 'archive' | 'file'
-  fileSize: '',        // formatted file size string
+  extraData: null,
+  fallbackType: '',
+  fileSize: '',
 })
-const popoverRef = ref(null)
+const popoverRef = ref<HTMLElement | null>(null)
 
-let hoverTimer = null
-let hideTimer = null
-let currentFile = null
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let hideTimer: ReturnType<typeof setTimeout> | null = null
+let currentFile: FileEntry | null = null // 最近一次悬停的文件（用于内部状态追踪）
 
-function getPreviewType(filename) {
+function getPreviewType(filename: string): Exclude<PreviewType, '' | 'fallback'> {
   if (isImageFile(filename)) return 'image'
   if (isTextFile(filename)) return 'text'
   if (isVideoFile(filename)) return 'video'
@@ -38,7 +58,7 @@ const PREVIEW_TEXT_MAX = 200
 const PREVIEW_SIZE_MAX = 1024 * 1024 // 1MB
 const THUMBNAIL_BASE = '/api/thumbnail/'
 
-function repositionPopover() {
+function repositionPopover(): void {
     if (!previewState.visible) return
 
     // 默认尺寸（fallback，防止 DOM 还没渲染）
@@ -74,7 +94,12 @@ function repositionPopover() {
     previewState.y = y
   }
 
-async function loadPreview(filename) {
+interface ThumbResult {
+  type: string
+  data?: unknown
+}
+
+async function loadPreview(filename: string): Promise<void> {
   const type = getPreviewType(filename)
   previewState.type = type
   previewState.fileName = filename
@@ -126,10 +151,10 @@ async function loadPreview(filename) {
     try {
       const resp = await fetch(`${THUMBNAIL_BASE}${encodeURIComponent(filename)}`)
       if (resp.ok) {
-        const result = await resp.json()
+        const result: ThumbResult = await resp.json()
         if (result.type === 'image' && result.data) {
           // 视频截帧 / 音频封面 → 作为图片展示
-          previewState.imageUrl = result.data
+          previewState.imageUrl = String(result.data)
           previewState.type = 'image'
           previewState.content = ''
           previewState.loading = false
@@ -173,28 +198,33 @@ async function loadPreview(filename) {
   }
 }
 
+/** 事件目标是否落在操作按钮区域（预览应忽略/隐藏） */
+function inActionArea(target: EventTarget | null): boolean {
+  return !!(target as HTMLElement | null)?.closest(
+    '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
+    '.file-card-actions, .cell-actions'
+  )
+}
+
 export function useHoverPreview() {
-  function setPopoverElement(el) {
+  function setPopoverElement(el: HTMLElement | null): void {
     popoverRef.value = el
   }
 
-  function showPreview(file, event) {
+  function showPreview(file: FileEntry | null, event: PointerEvent): void {
     if (!file || !file.name) return
 
-    const isMobile = navigator.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const ua = navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+    const isMobile = ua.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
     // 移动设备触发点击预览
-    if (event.target.type === 'click' && !isMobile) return
+    if (event.type === 'click' && !isMobile) return
 
     // 不支持预览的类型不显示
     if (getPreviewType(file.name) === 'other') return
 
     // 鼠标在操作按钮区域时忽略
-    const actionArea = event.target.closest(
-      '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
-      '.file-card-actions, .cell-actions'
-    )
-    if (actionArea) return
+    if (inActionArea(event.target)) return
 
     previewState._rawClientX = event.clientX
     previewState._rawClientY = event.clientY
@@ -215,13 +245,9 @@ export function useHoverPreview() {
     }, 300)
   }
 
-  function updatePosition(file, event) {
+  function updatePosition(file: FileEntry, event: PointerEvent): void {
     // 鼠标在操作按钮区域时隐藏预览
-    const actionArea = event.target.closest(
-      '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
-      '.file-card-actions, .cell-actions'
-    )
-    if (actionArea) {
+    if (inActionArea(event.target)) {
       cancelHide()
       resetPreviewState()
       return
@@ -239,7 +265,7 @@ export function useHoverPreview() {
     showPreview(file, event)
   }
 
-  function resetPreviewState() {
+  function resetPreviewState(): void {
     if (hoverTimer) {
       clearTimeout(hoverTimer)
       hoverTimer = null
@@ -258,9 +284,9 @@ export function useHoverPreview() {
     previewState.loading = false
   }
 
-  function hidePreview() {
-    // Archive/ZIP preview: delay hide so user can move cursor onto the popover to scroll
-    if (previewState.type === 'archive' || previewState.type === 'zip') {
+  function hidePreview(): void {
+    // Archive preview: delay hide so user can move cursor onto the popover to scroll
+    if (previewState.type === 'archive') {
       if (hideTimer) return // already scheduled
       hideTimer = setTimeout(() => {
         hideTimer = null
@@ -273,18 +299,18 @@ export function useHoverPreview() {
     resetPreviewState()
   }
 
-  function cancelHide() {
+  function cancelHide(): void {
     if (hideTimer) {
       clearTimeout(hideTimer)
       hideTimer = null
     }
   }
 
-  function onPopoverEnter() {
+  function onPopoverEnter(): void {
     cancelHide()
   }
 
-  function onPopoverLeave() {
+  function onPopoverLeave(): void {
     hidePreview()
   }
 

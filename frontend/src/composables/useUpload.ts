@@ -1,7 +1,7 @@
 import { ref } from 'vue'
-import { uploadFile, uploadChunk, mergeChunks, fetchFiles } from '../api/fileApi.js'
-import { useToast } from './useToast.js'
-import { useConfirmDialog } from './useConfirmDialog.js'
+import { uploadFile, uploadChunk, mergeChunks, fetchFiles } from '../api/fileApi'
+import { useToast } from './useToast'
+import { useConfirmDialog, type ConfirmAction, type ConfirmResult } from './useConfirmDialog'
 import { isLAN } from '../utils/helpers.js'
 
 const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB
@@ -9,11 +9,28 @@ const BYTES_PER_MB = 1024 * 1024
 const UPLOAD_CONCURRENCY = 3   // 文件级并发数
 const CHUNK_CONCURRENCY = 2    // 单文件内分片并发数
 
+export type UploadStatus = 'waiting' | 'uploading' | 'success' | 'error' | 'skipped'
+
+export interface UploadItem {
+  uid: number
+  file: File
+  name: string
+  size: number
+  status: UploadStatus
+  /** 重名冲突时用户选择"覆盖"则置 true */
+  overwrite: boolean
+  error?: string
+  /** 重试时重置用 */
+  progress?: number
+}
+
+type ConflictAction = 'overwrite' | 'rename' | 'skip'
+
 export function useUpload() {
   const uploading = ref(false)
   const uploadProgress = ref(0)
   const uploadStatus = ref('')
-  const uploadFiles = ref([])
+  const uploadFiles = ref<UploadItem[]>([])
 
   // 速度/剩余时间
   const uploadSpeed = ref(0)      // MB/s
@@ -32,7 +49,7 @@ export function useUpload() {
    * 追加待上传文件（不清空已有队列，支持在弹窗内逐次添加）。
    * 同名同大小同修改时间的重复文件自动跳过。
    */
-  function addFiles(files) {
+  function addFiles(files: FileList | File[]): void {
     const incoming = Array.from(files)
     if (incoming.length === 0) return
     const existing = new Set(
@@ -51,15 +68,15 @@ export function useUpload() {
         file: f,
         name: f.name,
         size: f.size,
-        status: 'waiting', // waiting | uploading | success | error | skipped
-        overwrite: false   // 重名冲突时用户选择"覆盖"则置 true
+        status: 'waiting',
+        overwrite: false
       })
     }
     if (skipped > 0) toast.info(`已忽略 ${skipped} 个重复添加的文件`)
   }
 
   /** 移除单个待上传项（上传中的条目由 worker 持有引用，不可移除） */
-  function removeFile(item) {
+  function removeFile(item: UploadItem): void {
     if (item.status === 'uploading') return
     const idx = uploadFiles.value.indexOf(item)
     if (idx === -1) return
@@ -72,7 +89,7 @@ export function useUpload() {
     }
   }
 
-  function clearFiles() {
+  function clearFiles(): void {
     uploadFiles.value = []
     uploadProgress.value = 0
     uploadStatus.value = ''
@@ -85,15 +102,15 @@ export function useUpload() {
    * 覆盖（删除旧文件保留新文件）/ 保留两个（自动改名共存）/ 取消（跳过该文件）。
    * 多个冲突时可勾选"应用到全部"一次性处理。
    */
-  async function resolveConflicts() {
+  async function resolveConflicts(): Promise<void> {
     const waiting = uploadFiles.value.filter(f => f.status === 'waiting')
     if (waiting.length === 0) return
 
-    let existingNames
+    let existingNames: Set<string>
     try {
       const files = await fetchFiles()
       existingNames = new Set(files.map(f => f.name))
-    } catch (err) {
+    } catch {
       toast.error('检查文件冲突失败，将按"保留两个"继续上传')
       return
     }
@@ -101,7 +118,7 @@ export function useUpload() {
     const conflicts = waiting.filter(f => existingNames.has(f.name))
     if (conflicts.length === 0) return
 
-    let remembered = null // 记住的批量选择 { action }，checked 后对所有剩余冲突生效
+    let remembered: { action: ConflictAction } | null = null // 记住的批量选择，checked 后对所有剩余冲突生效
 
     for (let i = 0; i < conflicts.length; i++) {
       const item = conflicts[i]
@@ -115,7 +132,7 @@ export function useUpload() {
         ? `文件 "${item.name}" 已存在，如何处理？\n（还有 ${remaining - 1} 个文件同名冲突）`
         : `文件 "${item.name}" 已存在，如何处理？`
 
-      const result = await confirm(message, {
+      const result: ConfirmResult = await confirm(message, {
         title: '文件冲突',
         confirmText: '覆盖',
         thirdText: '保留两个',
@@ -124,7 +141,8 @@ export function useUpload() {
         variant: 'warning'
       })
 
-      let action, checked = false
+      let action: ConfirmAction | boolean
+      let checked = false
       if (result && typeof result === 'object') {
         action = result.action
         checked = result.applyAll
@@ -132,13 +150,15 @@ export function useUpload() {
         action = result
       }
 
-      const mapped = { action: action === 'confirm' ? 'overwrite' : action === 'third' ? 'rename' : 'skip' }
+      const mapped: { action: ConflictAction } = {
+        action: action === 'confirm' ? 'overwrite' : action === 'third' ? 'rename' : 'skip'
+      }
       applyConflictAction(item, mapped)
       if (checked) remembered = mapped
     }
   }
 
-  function applyConflictAction(item, { action }) {
+  function applyConflictAction(item: UploadItem, { action }: { action: ConflictAction }): void {
     if (action === 'overwrite') {
       item.overwrite = true
       item.status = 'waiting'
@@ -153,7 +173,7 @@ export function useUpload() {
   /**
    * 重试单个失败的上传项
    */
-  async function retryItem(item) {
+  async function retryItem(item: UploadItem): Promise<void> {
     if (!item.file || item.status !== 'error') return
     item.status = 'waiting'
     item.progress = 0
@@ -167,7 +187,7 @@ export function useUpload() {
   /**
    * 重试所有失败的上传项
    */
-  async function retryAll() {
+  async function retryAll(): Promise<void> {
     const failedItems = uploadFiles.value.filter(f => f.status === 'error')
     if (failedItems.length === 0) return
 
@@ -184,7 +204,7 @@ export function useUpload() {
   /**
    * 计算瞬时速度（基于最近两个数据点）
    */
-  function calcInstantSpeed(speedHistory, deltaLoaded, deltaTime) {
+  function calcInstantSpeed(speedHistory: number[], deltaLoaded: number, deltaTime: number): number {
     if (deltaTime <= 0) return 0
     const instant = deltaLoaded / deltaTime // bytes/s
 
@@ -212,7 +232,7 @@ export function useUpload() {
   /**
    * 格式化剩余时间
    */
-  function formatEta(instSpeed, remainingBytes) {
+  function formatEta(instSpeed: number, remainingBytes: number): string {
     if (!(instSpeed > 0) || !(remainingBytes > 0) || remainingBytes >= 86400 * BYTES_PER_MB) return ''
     const etaSeconds = remainingBytes / instSpeed
     if (!(etaSeconds > 0) || etaSeconds >= 86400) return ''
@@ -224,7 +244,7 @@ export function useUpload() {
   /**
    * 并发池：以固定并发数依次消费任务队列
    */
-  async function runPool(items, worker, concurrency) {
+  async function runPool<T>(items: T[], worker: (item: T) => Promise<void>, concurrency: number): Promise<void> {
     let index = 0
     const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
       while (index < items.length) {
@@ -238,9 +258,9 @@ export function useUpload() {
   /**
    * 并发进度汇总器：按 item 聚合已上传字节，统一驱动 速度/ETA/总进度
    */
-  function createProgressAggregator(totalBytes) {
-    const speedHistory = []
-    const loadedMap = new Map() // item -> 已上传字节
+  function createProgressAggregator(totalBytes: number): (item: UploadItem, loaded: number, label?: string) => void {
+    const speedHistory: number[] = []
+    const loadedMap = new Map<UploadItem, number>() // item -> 已上传字节
     let lastCumulative = 0
     let lastTime = Date.now()
 
@@ -270,7 +290,7 @@ export function useUpload() {
     }
   }
 
-  function finishStatus() {
+  function finishStatus(): void {
     const successCount = uploadFiles.value.filter(f => f.status === 'success').length
     const skippedCount = uploadFiles.value.filter(f => f.status === 'skipped').length
     const errorCount = uploadFiles.value.filter(f => f.status === 'error').length
@@ -283,7 +303,7 @@ export function useUpload() {
     rawSpeed.value = 0
   }
 
-  async function startUpload() {
+  async function startUpload(): Promise<boolean> {
     if (uploadFiles.value.length === 0) return false
     uploading.value = true
 
@@ -320,7 +340,7 @@ export function useUpload() {
    * 内网上传：直接整文件 POST /api/upload
    * 速度更快，无分片/合并开销；多文件并发上传
    */
-  async function uploadDirect(activeFiles) {
+  async function uploadDirect(activeFiles: UploadItem[]): Promise<boolean> {
     const totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
     const tick = createProgressAggregator(totalBytes)
     let hasError = false
@@ -348,7 +368,7 @@ export function useUpload() {
           }
         } catch (err) {
           item.status = 'error'
-          item.error = err.message
+          item.error = err instanceof Error ? err.message : String(err)
           hasError = true
         }
       }, UPLOAD_CONCURRENCY)
@@ -357,7 +377,7 @@ export function useUpload() {
       if (hasError) toast.error('部分文件上传失败，可手动重试')
       return !hasError
     } catch (err) {
-      uploadStatus.value = `上传失败: ${err.message}`
+      uploadStatus.value = `上传失败: ${err instanceof Error ? err.message : String(err)}`
       uploadFiles.value.forEach((item) => {
         if (item.status === 'uploading') item.status = 'error'
         if (item.status === 'waiting') item.status = 'error'
@@ -372,7 +392,7 @@ export function useUpload() {
   /**
    * 外网上传：1MB 分片上传，避免大文件超时；文件级并发 + 文件内分片并发
    */
-  async function uploadChunked(activeFiles) {
+  async function uploadChunked(activeFiles: UploadItem[]): Promise<boolean> {
     const totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
     const tick = createProgressAggregator(totalBytes)
     let hasError = false
@@ -384,7 +404,7 @@ export function useUpload() {
         const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}-${Math.random().toString(36).slice(2)}`
         item.status = 'uploading'
 
-        const chunkLoaded = new Array(totalChunks).fill(0)
+        const chunkLoaded = new Array<number>(totalChunks).fill(0)
         const chunkIndexes = Array.from({ length: totalChunks }, (_, i) => i)
 
         try {
@@ -395,8 +415,8 @@ export function useUpload() {
 
             const formData = new FormData()
             formData.append('fileId', fileId)
-            formData.append('chunkIndex', chunkIndex)
-            formData.append('totalChunks', totalChunks)
+            formData.append('chunkIndex', String(chunkIndex))
+            formData.append('totalChunks', String(totalChunks))
             formData.append('fileName', file.name)
             formData.append('chunk', chunk)
 
@@ -415,7 +435,7 @@ export function useUpload() {
           tick(item, file.size)
         } catch (err) {
           item.status = 'error'
-          item.error = err.message
+          item.error = err instanceof Error ? err.message : String(err)
           hasError = true
         }
       }, UPLOAD_CONCURRENCY)
@@ -424,7 +444,7 @@ export function useUpload() {
       if (hasError) toast.error('部分文件上传失败，可手动重试')
       return !hasError
     } catch (err) {
-      uploadStatus.value = `上传失败: ${err.message}`
+      uploadStatus.value = `上传失败: ${err instanceof Error ? err.message : String(err)}`
       uploadFiles.value.forEach((item) => {
         if (item.status === 'uploading') item.status = 'error'
         if (item.status === 'waiting') item.status = 'error'

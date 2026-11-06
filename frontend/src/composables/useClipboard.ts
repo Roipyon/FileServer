@@ -3,37 +3,39 @@ import {
   fetchClipboard,
   sendClipboard as apiSendClipboard,
   deleteClipItem as apiDeleteClipItem,
-  clearClipboard as apiClearClipboard
-} from '../api/clipboardApi.js'
+  clearClipboard as apiClearClipboard,
+  type ClipItem
+} from '../api/clipboardApi'
 import { copyToClipboard } from '../utils/clipboard.js'
-import { useToast } from './useToast.js'
+import { useToast } from './useToast'
 
 const toast = useToast()
 
 const state = reactive({
-  items: [],
+  items: [] as ClipItem[],
   loading: false,
   connected: false,
   deviceName: '',
   polling: false,
-  lastFetch: null
+  lastFetch: null as number | null
 })
 
-let pollTimer = null
-let visibilityHandler = null
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let visibilityHandler: (() => void) | null = null
 
 // 已有的条目 ID 集合，用于检测新增项
-let knownIds = new Set()
+let knownIds = new Set<string>()
 
-function getStoredDeviceName() {
+function getStoredDeviceName(): string {
   try {
-    const stored = localStorage.getItem('clipboard_deviceName')
-    if (stored) return stored
-  } catch (e) { /* localStorage 不可用 */ }
-  return ''
+    return localStorage.getItem('clipboard_deviceName') || ''
+  } catch {
+    // localStorage 不可用
+    return ''
+  }
 }
 
-function generateDeviceName() {
+function generateDeviceName(): string {
   const ua = navigator.userAgent
   if (ua.includes('Windows')) return 'Windows 电脑'
   if (ua.includes('Mac OS')) return 'Mac 电脑'
@@ -43,7 +45,7 @@ function generateDeviceName() {
   return '未知设备'
 }
 
-async function loadItems() {
+async function loadItems(): Promise<void> {
   try {
     const items = await fetchClipboard()
 
@@ -59,12 +61,12 @@ async function loadItems() {
     state.connected = true
     state.lastFetch = Date.now()
   } catch (err) {
-    toast.error('加载剪贴板失败:', err)
+    toast.error(`加载剪贴板失败 ${err instanceof Error ? err.message : String(err)}`)
     state.connected = false
   }
 }
 
-async function sendContent(text) {
+async function sendContent(text: string): Promise<boolean> {
   if (!text || !text.trim()) return false
   try {
     await apiSendClipboard(text.trim(), state.deviceName)
@@ -72,55 +74,57 @@ async function sendContent(text) {
     await loadItems()
     return true
   } catch (err) {
-    toast.error('发送剪贴板内容失败:', err)
+    toast.error(`发送剪贴板内容失败 ${err instanceof Error ? err.message : String(err)}`)
     throw err
   }
 }
 
-async function copyToSystem(item) {
+async function copyToSystem(item: ClipItem): Promise<boolean> {
   return await copyToClipboard(item.content)
 }
 
-async function deleteItem(id) {
+async function deleteItem(id: string): Promise<void> {
   if (!id) return
   try {
     await apiDeleteClipItem(id)
     knownIds.delete(id)
     state.items = state.items.filter(item => item.id !== id)
   } catch (err) {
-    toast.error('删除剪贴板条目失败:', err)
+    toast.error(`删除剪贴板条目失败 ${err instanceof Error ? err.message : String(err)}`)
     throw err
   }
 }
 
-async function clearAll() {
+async function clearAll(): Promise<void> {
   try {
     await apiClearClipboard()
     knownIds.clear()
     state.items = []
   } catch (err) {
-    toast.error('清空剪贴板失败:', err)
+    toast.error(`清空剪贴板失败 ${err instanceof Error ? err.message : String(err)}`)
     throw err
   }
 }
 
-function setDeviceName(name) {
+function setDeviceName(name: string): void {
   const trimmed = name.trim()
   if (!trimmed) return
   state.deviceName = trimmed
   try {
     localStorage.setItem('clipboard_deviceName', trimmed)
-  } catch (e) { /* localStorage 不可用 */ }
+  } catch {
+    // localStorage 不可用
+  }
 }
 
-function getDeviceName() {
+function getDeviceName(): string {
   if (!state.deviceName) {
     state.deviceName = getStoredDeviceName() || generateDeviceName()
   }
   return state.deviceName
 }
 
-function startPolling() {
+function startPolling(): void {
   if (state.polling) return
 
   // 初始化设备名
@@ -157,7 +161,7 @@ function startPolling() {
   state.polling = true
 }
 
-function stopPolling() {
+function stopPolling(): void {
   state.polling = false
   if (pollTimer) {
     clearInterval(pollTimer)

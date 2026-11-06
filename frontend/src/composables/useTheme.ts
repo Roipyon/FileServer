@@ -4,25 +4,27 @@
  * 持久化到 localStorage（key: fileserver-theme）。
  * 通过 <html data-theme="dark|light"> 控制样式切换。
  */
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 
 const STORAGE_KEY = 'fileserver-theme'
+
+export type ThemeName = 'dark' | 'light'
 
 const THEME = {
   DARK: 'dark',
   LIGHT: 'light',
-}
+} as const
 
 // 全局单例
-const currentTheme = ref(THEME.DARK)
+const currentTheme = ref<ThemeName>(THEME.DARK)
 let ready = false
 
-function applyTheme(theme) {
+function applyTheme(theme: ThemeName): void {
   document.documentElement.setAttribute('data-theme', theme)
   currentTheme.value = theme
 }
 
-function loadPersistedTheme() {
+function loadPersistedTheme(): ThemeName {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === THEME.DARK || stored === THEME.LIGHT) {
@@ -34,7 +36,7 @@ function loadPersistedTheme() {
   return THEME.DARK // 默认暗色
 }
 
-function persistTheme(theme) {
+function persistTheme(theme: ThemeName): void {
   try {
     localStorage.setItem(STORAGE_KEY, theme)
   } catch {
@@ -42,17 +44,17 @@ function persistTheme(theme) {
   }
 }
 
-function setTheme(theme) {
+function setTheme(theme: ThemeName): void {
   if (theme !== THEME.DARK && theme !== THEME.LIGHT) return
   applyTheme(theme)
   persistTheme(theme)
 }
 
-function toggleTheme() {
+function toggleTheme(): void {
   setTheme(currentTheme.value === THEME.DARK ? THEME.LIGHT : THEME.DARK)
 }
 
-function initTheme() {
+function initTheme(): void {
   if (ready) return
   const theme = loadPersistedTheme()
   applyTheme(theme)

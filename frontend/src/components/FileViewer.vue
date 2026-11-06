@@ -171,16 +171,16 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
-import { useViewer } from '../composables/useViewer.js'
-import { useFileManager } from '../composables/useFileManager.js'
+import { useViewer } from '../composables/useViewer'
+import { useFileManager } from '../composables/useFileManager'
 import { getFileIcon, formatFileSize } from '../utils/helpers.js'
-import { getDownloadUrl, getRawUrl, saveFile } from '../api/fileApi.js'
+import { getDownloadUrl, getRawUrl, saveFile } from '../api/fileApi'
 import {
   isTextFile, isImageFile, isArchiveFile,
   getFileCategory, getCodeMirrorLang, getExt, getFileTypeColor, iconTypeClass as getIconTypeClass
 } from '../utils/fileTypes.js'
-import { useToast } from '../composables/useToast.js'
-import { useConfirmDialog } from '../composables/useConfirmDialog.js'
+import { useToast } from '../composables/useToast'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 
 const toast = useToast()
 const { confirm } = useConfirmDialog()

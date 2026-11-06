@@ -1,35 +1,43 @@
-import { reactive, computed, ref, onMounted, onUnmounted } from 'vue'
+import { reactive, computed, ref } from 'vue'
 import {
-  fetchFiles, deleteFile as apiDeleteFile, getDownloadUrl, renameFile as apiRenameFile
-} from '../api/fileApi.js'
+  fetchFiles, deleteFile as apiDeleteFile, getDownloadUrl, renameFile as apiRenameFile,
+  type FileEntry
+} from '../api/fileApi'
 import { formatFileSize, parseFileSize, debounce } from '../utils/helpers.js'
-import { useToast } from './useToast.js'
-import { useConfirmDialog } from './useConfirmDialog.js'
+import { useToast } from './useToast'
+import { useConfirmDialog } from './useConfirmDialog'
+
+/** 列表视图条目 = 后端字段 + 客户端高亮标记 */
+export type FileListItem = FileEntry & { isNew: boolean }
+
+type SortField = 'name' | 'size' | 'modified' | 'mtime'
+type SortDirection = 'asc' | 'desc'
+type ViewKind = 'grid' | 'list'
 
 // 模块级 ref（用于滑动选择跨组件同步）
 const slideSelecting = ref(false)
-const slideStartFile = ref(null)
+const slideStartFile = ref<string | null>(null)
 
 const { confirm } = useConfirmDialog()
 const toast = useToast()
 
 const state = reactive({
-  files: [],
-  filteredFiles: [],
-  currentView: 'grid',
-  sortField: 'name',
-  sortDirection: 'asc',
+  files: [] as FileEntry[],
+  filteredFiles: [] as FileListItem[],
+  currentView: 'grid' as ViewKind,
+  sortField: 'name' as SortField,
+  sortDirection: 'asc' as SortDirection,
   searchQuery: '',
   currentSection: 'files',
   loading: false,
   connected: false,
   serverInfo: '等待连接...',
   selectionMode: false,
-  selectedFiles: new Set(),
-  highlightedFiles: new Set()
+  selectedFiles: new Set<string>(),
+  highlightedFiles: new Set<string>()
 })
 
-const SORT_OPTIONS = [
+const SORT_OPTIONS: Array<{ field: SortField; label: string }> = [
   { field: 'name', label: '名称' },
   { field: 'size', label: '大小' },
   { field: 'modified', label: '修改时间' },
@@ -39,8 +47,8 @@ const SORT_OPTIONS = [
 let lastFileHash = ''
 let version = 0
 
-function filterAndSort() {
-  let list = [...state.files]
+function filterAndSort(): void {
+  let list: FileListItem[] = state.files.map(f => ({ ...f, isNew: false }))
 
   const term = state.searchQuery.toLowerCase().trim()
   if (term) {
@@ -66,15 +74,11 @@ function filterAndSort() {
     return state.sortDirection === 'asc' ? cmp : -cmp
   })
 
-  // 标记高亮文件（新上传的）
-  if (state.highlightedFiles.size > 0) {
-    list = list.map(f => ({
-      ...f,
-      isNew: state.highlightedFiles.has(f.name)
-    }))
-  } else {
-    list = list.map(f => ({ ...f, isNew: false }))
-  }
+  // 标记高亮文件（新上传的）；集合为空时全部标记 false，行为与旧版一致
+  list = list.map(f => ({
+    ...f,
+    isNew: state.highlightedFiles.has(f.name)
+  }))
 
   state.filteredFiles = list
 }
@@ -92,10 +96,10 @@ const lastUpdate = computed(() => {
   )
   return new Date(latest.modified).toLocaleDateString('zh-CN')
 })
-const fileTypes = computed(() => {
-  const types = {}
+const fileTypes = computed<Record<string, number>>(() => {
+  const types: Record<string, number> = {}
   state.files.forEach((f) => {
-    const ext = f.name.split('.').pop().toLowerCase()
+    const ext = (f.name.split('.').pop() || '').toLowerCase()
     types[ext] = (types[ext] || 0) + 1
   })
   return types
@@ -115,7 +119,7 @@ const recentFiles = computed(() => {
     .slice(0, 10)
 })
 
-function setSort(field) {
+function setSort(field: SortField): void {
   if (state.sortField === field) {
     state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc'
   } else {
@@ -125,13 +129,13 @@ function setSort(field) {
   filterAndSort()
 }
 
-// 计算文件列表哈希
-function getFileHash(files) {
+// 计算文件列表哈希（mtime 为历史遗留字段名，实际恒为 undefined，哈希等价于 name|size）
+function getFileHash(files: Array<Pick<FileEntry, 'name' | 'size'> & { mtime?: string }>): string {
   return files.map(f => `${f.name}|${f.size}|${f.mtime}`).join('|')
 }
 
 // 轮询专用静默更新
-async function updateFilesSilently() {
+async function updateFilesSilently(): Promise<void> {
   try {
     const data = await fetchFiles()
     const newHash = getFileHash(data)
@@ -141,13 +145,13 @@ async function updateFilesSilently() {
       lastFileHash = newHash
     }
     state.connected = true
-  } catch (err) {
+  } catch {
     state.connected = false
     // 静默失败，不弹 toast
   }
 }
 
-async function loadFiles() {
+async function loadFiles(): Promise<void> {
   version++
   const currentVersion = version
   state.loading = true
@@ -167,7 +171,7 @@ async function loadFiles() {
     if (currentVersion === version) {
       state.connected = false
       state.serverInfo = '连接服务器失败'
-      toast.error('加载文件失败:', err)
+      toast.error(`加载文件失败: ${err instanceof Error ? err.message : String(err)}`)
     }
   } finally {
     if (currentVersion === version) {
@@ -176,23 +180,23 @@ async function loadFiles() {
   }
 }
 
-function setSearch(query) {
+function setSearch(query: string): void {
   state.searchQuery = query
   filterAndSort()
 }
 
-function setView(view) {
+function setView(view: ViewKind): void {
   state.currentView = view
 }
 
-function setSection(section) {
+function setSection(section: string): void {
   if (section !== 'files' && state.selectionMode) {
     clearSelection()
   }
   state.currentSection = section
 }
 
-async function deleteFile(filename) {
+async function deleteFile(filename: string): Promise<void> {
   if (!filename) return
   const ok = await confirm(`确定要删除文件\n"${filename}"\n吗？此操作不可撤销。`, {
     title: '确认删除',
@@ -204,14 +208,14 @@ async function deleteFile(filename) {
     await apiDeleteFile(filename)
     await loadFiles()
   } catch (err) {
-    toast.error(`删除失败: ${err.message}`)
+    toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
-let refreshTimer = null
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 let isPollingActive = false
 
-function startAutoRefresh(interval = 5000) {
+function startAutoRefresh(interval = 5000): void {
   if (refreshTimer) return
 
   // 首次加载用 loadFiles（有 loading）
@@ -227,14 +231,14 @@ function startAutoRefresh(interval = 5000) {
   document.addEventListener('visibilitychange', handleVisibilityChange)
 }
 
-function stopAutoRefresh() {
+function stopAutoRefresh(): void {
   if (refreshTimer) {
     clearInterval(refreshTimer)
     refreshTimer = null
   }
 }
 
-function handleVisibilityChange() {
+function handleVisibilityChange(): void {
   if (document.hidden) {
     // 页面隐藏，停止轮询
     if (refreshTimer) {
@@ -254,7 +258,7 @@ function handleVisibilityChange() {
   }
 }
 
-function refreshAndResetTimer() {
+function refreshAndResetTimer(): void {
   loadFiles()  // 操作后刷新，有 loading 反馈
   if (!refreshTimer) {
     // 轮询没启动，启动它
@@ -269,13 +273,13 @@ function refreshAndResetTimer() {
   }, 5000)
 }
 
-const debouncedSearch = debounce((q) => {
+const debouncedSearch = debounce((q: string) => {
   state.searchQuery = q
   filterAndSort()
 }, 250)
 
 // ==================== 批量选择 ====================
-function toggleSelect(filename) {
+function toggleSelect(filename: string): void {
   if (state.selectedFiles.has(filename)) {
     state.selectedFiles.delete(filename)
     if (state.selectedFiles.size === 0) state.selectionMode = false
@@ -285,18 +289,22 @@ function toggleSelect(filename) {
   }
 }
 
+/** 事件目标是否落在操作按钮区域（选择应忽略） */
+function inActionArea(target: EventTarget | null, extra = ''): boolean {
+  return !!(target as HTMLElement | null)?.closest(
+    '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
+    '.file-card-actions, .cell-actions' + extra
+  )
+}
+
 /**
  * 点击文件卡片主体区域选择/取消（忽略按钮区域）
  * 在选择模式下使用，非选择模式跳过
  */
-function cardClickSelect(filename, event) {
+function cardClickSelect(filename: string, event: MouseEvent): void {
   if (!state.selectionMode) return
   // 忽略按钮区域
-  const actionArea = event.target.closest(
-    '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
-    '.file-card-actions, .cell-actions, .file-card-check, .card-action-dl'
-  )
-  if (actionArea) return
+  if (inActionArea(event.target, ', .file-card-check, .card-action-dl')) return
   toggleSelect(filename)
 }
 
@@ -305,14 +313,10 @@ function cardClickSelect(filename, event) {
 /**
  * 开始滑动选择
  */
-function startSlideSelect(filename, event) {
+function startSlideSelect(filename: string, event: MouseEvent): void {
   if (!state.selectionMode) return
   // 忽略按钮区域
-  const actionArea = event.target.closest(
-    '.card-action-btn, .row-action-btn, .card-expand-wrap, .list-expand-wrap, ' +
-    '.file-card-actions, .cell-actions, .file-card-check'
-  )
-  if (actionArea) return
+  if (inActionArea(event.target, ', .file-card-check')) return
 
   slideSelecting.value = true
   slideStartFile.value = filename
@@ -330,12 +334,9 @@ function startSlideSelect(filename, event) {
 /**
  * 滑动过程中选择经过的文件
  */
-function updateSlideSelect(filename, event) {
+function updateSlideSelect(filename: string, _event?: unknown): void {
   if (!slideSelecting.value || !state.selectionMode) return
   if (!filename) return
-
-  // 忽略按钮区域，但只在 mousedown 时检查
-  // 滑动过程中不检查，让滑动手感流畅
 
   // 如果当前文件还未被选中，则选中它
   if (!state.selectedFiles.has(filename)) {
@@ -346,13 +347,13 @@ function updateSlideSelect(filename, event) {
 /**
  * 结束滑动选择
  */
-function endSlideSelect() {
+function endSlideSelect(): void {
   if (!slideSelecting.value) return
   slideSelecting.value = false
   slideStartFile.value = null
 }
 
-function toggleSelectionMode() {
+function toggleSelectionMode(): void {
   if (state.selectionMode) {
     clearSelection()
   } else {
@@ -360,17 +361,17 @@ function toggleSelectionMode() {
   }
 }
 
-function selectAll() {
+function selectAll(): void {
   state.filteredFiles.forEach(f => state.selectedFiles.add(f.name))
   state.selectionMode = true
 }
 
-function clearSelection() {
+function clearSelection(): void {
   state.selectedFiles.clear()
   state.selectionMode = false
 }
 
-async function batchDelete() {
+async function batchDelete(): Promise<void> {
   const files = [...state.selectedFiles]
   if (files.length === 0) return
   const ok = await confirm(`确定要删除选中的 ${files.length} 个文件吗？此操作不可撤销。`, {
@@ -382,14 +383,14 @@ async function batchDelete() {
 
   let successCount = 0
   let failCount = 0
-  const failedNames = []
+  const failedNames: string[] = []
 
   for (const name of files) {
     try {
       await apiDeleteFile(name)
       successCount++
-    } catch (err) {
-      toast.error(`删除 ${name} 失败:`, err)
+    } catch {
+      toast.error(`删除 ${name} 失败`)
       failCount++
       failedNames.push(name)
     }
@@ -405,9 +406,9 @@ async function batchDelete() {
 }
 
 // ==================== 高亮新文件 ====================
-let highlightTimer = null
+let highlightTimer: ReturnType<typeof setTimeout> | null = null
 
-function highlightFile(names) {
+function highlightFile(names: string[]): void {
   names.forEach(n => state.highlightedFiles.add(n))
   filterAndSort()
 
@@ -417,14 +418,14 @@ function highlightFile(names) {
   }, 1500)
 }
 
-function clearHighlights() {
+function clearHighlights(): void {
   state.highlightedFiles.clear()
   filterAndSort()
   highlightTimer = null
 }
 
 // ==================== 文件重命名 ====================
-async function renameFile(oldName, newName) {
+async function renameFile(oldName: string, newName: string): Promise<{ success?: boolean } | null> {
   if (!oldName || !newName || oldName === newName) return null
   // 失败提示由调用方负责（避免与调用方 toast 重复）
   const result = await apiRenameFile(oldName, newName)
