@@ -21,7 +21,7 @@ Copy-Item -Path (Join-Path $repoRoot 'dist\*') -Destination $embedDistDir -Recur
 # 2. 编译（-s -w 裁剪符号表，-trimpath 去路径指纹，-X 注入版本号）
 #    代理与 GOPATH 沿用当前环境；未配置代理时可按需设置 $env:GOPROXY
 Push-Location $backendDir
-& $GoExe build -trimpath -ldflags '-s -w -X main.appVersion=2.1.1' -o FileServer-win.exe .
+& $GoExe build -trimpath -ldflags '-s -w -X main.appVersion=2.2.0' -o FileServer-win.exe .
 $buildExit = $LASTEXITCODE
 Pop-Location
 if ($buildExit -ne 0) { throw "go build failed, exit code $buildExit" }

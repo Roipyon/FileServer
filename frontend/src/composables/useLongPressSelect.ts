@@ -1,5 +1,5 @@
 import { onUnmounted } from 'vue'
-import { useFileManager } from './useFileManager.js'
+import { useFileManager } from './useFileManager'
 
 const LONG_PRESS_MS = 500   // 长按判定时长
 const MOVE_TOLERANCE = 10   // 判定取消的移动容差(px)
@@ -11,11 +11,11 @@ const MOVE_TOLERANCE = 10   // 判定取消的移动容差(px)
  */
 export function useLongPressSelect() {
   const { toggleSelect } = useFileManager()
-  let timer = null
+  let timer: ReturnType<typeof setTimeout> | null = null
   let triggered = false
-  let cleanupDoc = null
+  let cleanupDoc: (() => void) | null = null
 
-  function startPress(filename, event) {
+  function startPress(filename: string, event: TouchEvent): void {
     clearPress()
     if (!event.touches || event.touches.length !== 1) return
     const x = event.touches[0].clientX
@@ -24,12 +24,14 @@ export function useLongPressSelect() {
 
     timer = setTimeout(() => {
       triggered = true
-      try { navigator.vibrate && navigator.vibrate(30) } catch {}
+      try { navigator.vibrate && navigator.vibrate(30) } catch {
+        // 部分环境不支持振动
+      }
       // toggleSelect 会在选中首个文件时自动进入选择模式
       toggleSelect(filename)
     }, LONG_PRESS_MS)
 
-    const onMove = (e) => {
+    const onMove = (e: TouchEvent) => {
       const t = e.touches && e.touches[0]
       if (!t) return
       if (Math.abs(t.clientX - x) > MOVE_TOLERANCE || Math.abs(t.clientY - y) > MOVE_TOLERANCE) {
@@ -47,7 +49,7 @@ export function useLongPressSelect() {
     }
   }
 
-  function clearPress() {
+  function clearPress(): void {
     if (timer) {
       clearTimeout(timer)
       timer = null
@@ -59,7 +61,7 @@ export function useLongPressSelect() {
   }
 
   /** click 处理器中调用：若刚触发了长按则返回 true 并延迟复位 */
-  function wasLongPress() {
+  function wasLongPress(): boolean {
     if (!triggered) return false
     setTimeout(() => { triggered = false }, 350)
     return true

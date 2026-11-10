@@ -160,9 +160,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { useFileManager } from '../composables/useFileManager.js'
-import { useToast } from '../composables/useToast.js'
-import { startZipTask, getZipProgress, getZipDownloadUrl, cancelZipTask } from '../api/fileApi.js'
+import { useFileManager } from '../composables/useFileManager'
+import { useToast } from '../composables/useToast'
+import { startZipTask, getZipProgress, getZipDownloadUrl, cancelZipTask } from '../api/fileApi'
 
 const emit = defineEmits(['close'])
 const { state } = useFileManager()

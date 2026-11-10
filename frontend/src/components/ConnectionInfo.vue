@@ -196,6 +196,49 @@
               </TransitionGroup>
             </div>
 
+            <!-- ====== 区块四：软件更新 ====== -->
+            <div class="conn-section">
+              <div class="conn-section-title">
+                <i class="fas fa-arrows-rotate"></i> 软件更新
+              </div>
+              <div class="conn-update-card">
+                <div class="conn-update-versions">
+                  <span>最新版本<b>v{{ latestVersion }}</b></span>
+                  <span>当前版本<b>v{{ state.serverVersion || '?' }}</b>
+                    <em v-if="state.webOverride" class="conn-update-badge">热更新</em>
+                  </span>
+                </div>
+
+                <div v-if="updateState.error" class="conn-update-error">
+                  <i class="fas fa-triangle-exclamation"></i> {{ updateState.error }}
+                </div>
+
+                <div v-if="updateState.notice" class="conn-update-notice">
+                  <i class="fas fa-info-circle"></i> {{ updateState.notice }}
+                </div>
+
+                <div class="conn-update-actions">
+                  <button class="conn-update-check" :disabled="!!updateState.phase" @click="doUpdateAll">
+                    <i class="fas fa-arrows-rotate"></i>
+                    {{ phaseText }}
+                  </button>
+                  <button
+                    v-if="state.webOverride"
+                    class="conn-update-rollback"
+                    :disabled="!!updateState.phase"
+                    @click="doRollback"
+                  >
+                    <i class="fas fa-rotate-left"></i> 恢复内嵌版本
+                  </button>
+                </div>
+
+                <p class="conn-update-hint">
+                  <i class="fas fa-info-circle"></i>
+                  前端更新后刷新即生效
+                </p>
+              </div>
+            </div>
+
             <!-- 底部提示 -->
             <p class="conn-global-hint">
               <i class="fas fa-info-circle"></i>
@@ -217,9 +260,10 @@
 
 <script setup>
 import { ref, reactive, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useServerInfo } from '../composables/useServerInfo.js'
+import { useServerInfo } from '../composables/useServerInfo'
+import { useUpdate } from '../composables/useUpdate'
 import { normalizeUrl, isLink } from '../utils/helpers.js'
-import { useToast } from '../composables/useToast.js'
+import { useToast } from '../composables/useToast'
 
 const toast = useToast()
 
@@ -230,6 +274,33 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const { state, fetchInfo, generateQR, collapse, copyUrl, resetCache } = useServerInfo()
+const { state: updateState, updateAll, rollback } = useUpdate()
+
+// 最新版本：检查到可用更新时取清单版本，未发现时与当前一致
+const latestVersion = computed(() => {
+  const a = updateState.available
+  return a?.server?.version || a?.web?.version || a?.android?.version || state.serverVersion || '?'
+})
+
+// 一键更新按钮文案随阶段变化
+const phaseText = computed(() => {
+  const map = {
+    check: '检查中…',
+    web: '更新前端…',
+    server: '更新服务端…',
+    apk: '下载安装包…',
+    rollback: '回退中…'
+  }
+  return map[updateState.phase] || '检查更新'
+})
+
+function doUpdateAll() {
+  updateAll(state.serverVersion)
+}
+
+async function doRollback() {
+  await rollback()
+}
 const copied = ref(false)
 let copyTimer = null
 
@@ -905,6 +976,122 @@ onUnmounted(() => {
 .conn-visit-btn:hover {
   background: var(--accent-subtle);
   color: var(--accent-glow);
+}
+
+/* --- Update card --- */
+.conn-update-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+}
+
+.conn-update-versions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.conn-update-versions span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.conn-update-versions b {
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.conn-update-badge {
+  font-style: normal;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-inverse);
+  vertical-align: 1px;
+  margin-left: 4px;
+}
+
+.conn-update-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--danger);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.conn-update-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.conn-update-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.conn-update-check,
+.conn-update-rollback {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-radius: 10px;
+  border: none;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 150ms var(--ease-out-expo);
+}
+
+.conn-update-check:hover:not(:disabled) {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.conn-update-rollback:hover:not(:disabled) {
+  background: var(--danger-glow);
+  color: var(--danger);
+}
+
+.conn-update-check:disabled,
+.conn-update-rollback:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.conn-update-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.conn-update-hint i {
+  margin-top: 2px;
+  color: var(--accent-dim);
 }
 
 /* --- Global hint --- */

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="camera" path="camera/" />
+    <!-- 整包自更新：下载的 APK（cache/updates/） -->
+    <cache-path name="updates" path="updates/" />
 </paths>

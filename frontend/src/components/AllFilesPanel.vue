@@ -59,7 +59,7 @@
 import { ref, computed, reactive, watch } from 'vue'
 import FileGridView from './FileGridView.vue'
 import FileListView from './FileListView.vue'
-import { useFileManager } from '../composables/useFileManager.js'
+import { useFileManager } from '../composables/useFileManager'
 import { getFileCategory } from '../utils/fileTypes.js'
 import { groupFilesByTime } from '../utils/helpers.js'
 

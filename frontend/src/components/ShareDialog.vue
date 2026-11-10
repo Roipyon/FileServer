@@ -88,8 +88,8 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { generateShareLink } from '../api/fileApi.js'
-import { useToast } from '../composables/useToast.js'
+import { generateShareLink } from '../api/fileApi'
+import { useToast } from '../composables/useToast'
 
 const props = defineProps({
   fileName: { type: String, required: true }

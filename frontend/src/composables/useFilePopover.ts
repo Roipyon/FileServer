@@ -1,4 +1,5 @@
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import type { ViewerFile } from './useViewer'
 
 /**
  * 文件弹出菜单（「更多操作」）共享逻辑
@@ -6,12 +7,12 @@ import { ref, nextTick, onMounted, onUnmounted } from 'vue'
  */
 export function useFilePopover() {
   const menuVisible = ref(false)
-  const menuFile = ref(null)
+  const menuFile = ref<ViewerFile | null>(null)
   const menuX = ref(0)
   const menuY = ref(0)
-  const popoverRef = ref(null)
+  const popoverRef = ref<HTMLElement | null>(null)
 
-  async function openMenu(file, e) {
+  async function openMenu(file: ViewerFile, e: MouseEvent): Promise<void> {
     e.stopPropagation()
     if (menuVisible.value && menuFile.value === file) {
       menuVisible.value = false
@@ -34,17 +35,17 @@ export function useFilePopover() {
     if (overflowBottom > 0) menuY.value -= overflowBottom + 5
   }
 
-  function closeMenu() {
+  function closeMenu(): void {
     menuVisible.value = false
   }
 
-  function onGlobalClick(e) {
-    if (menuVisible.value && !e.target.closest('.list-popover')) {
+  function onGlobalClick(e: MouseEvent): void {
+    if (menuVisible.value && !(e.target as HTMLElement | null)?.closest('.list-popover')) {
       closeMenu()
     }
   }
 
-  function onGlobalKeydown(e) {
+  function onGlobalKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape' && menuVisible.value) {
       closeMenu()
     }

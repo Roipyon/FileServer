@@ -35,7 +35,7 @@
 
 <script setup>
 import { ref, watch, nextTick } from 'vue'
-import { usePromptDialog } from '../composables/usePromptDialog.js'
+import { usePromptDialog } from '../composables/usePromptDialog'
 
 const { dialogState, handleConfirm, handleCancel } = usePromptDialog()
 const inputRef = ref(null)

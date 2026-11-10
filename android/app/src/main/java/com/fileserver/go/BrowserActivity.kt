@@ -3,8 +3,10 @@ package com.fileserver.go
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.view.View
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -13,6 +15,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.content.FileProvider
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * 全屏 WebView 界面 — 纯 View 层级（不经 Compose AndroidView 互操作），
@@ -21,11 +25,13 @@ import java.io.File
  * 文件选择：实现 onShowFileChooser（相册/任意文件走系统选择器，
  * capture 拍照走系统相机 + FileProvider 落盘），网页内 <input type="file"> 全部可用。
  * 外链跳转：非本机地址（连接面板中的 IP 链接等）交由外部浏览器打开。
+ * 下载：APK 走整包自更新（下载 → FileProvider → 系统安装器），其余文件交系统下载管理器。
  */
 class BrowserActivity : Activity() {
 
     companion object {
         private const val REQ_FILE_CHOOSER = 1001
+        private const val APK_MIME = "application/vnd.android.package-archive"
     }
 
     private lateinit var webView: WebView
@@ -76,6 +82,22 @@ class BrowserActivity : Activity() {
                 }
             }
             addJavascriptInterface(NativeTheme.Bridge(this@BrowserActivity), "FileServerNative")
+            setDownloadListener { url, _, contentDisposition, mimetype, _ ->
+                val looksLikeApk = url.substringBefore('?').endsWith(".apk", true) ||
+                    mimetype == APK_MIME ||
+                    contentDisposition?.substringBefore('?')?.endsWith(".apk", true) == true
+                if (looksLikeApk) {
+                    // 整包自更新（方案 A）：壳内下载后触发系统安装器
+                    toast("开始下载更新…")
+                    Thread { downloadAndInstallApk(url) }.start()
+                } else {
+                    // 普通文件下载交系统下载管理器（通知栏可见）
+                    val req = android.app.DownloadManager.Request(Uri.parse(url))
+                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    (getSystemService(DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(req)
+                    toast("已交给系统下载")
+                }
+            }
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -161,6 +183,51 @@ class BrowserActivity : Activity() {
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    // ==================== 整包自更新（方案 A）====================
+
+    /** 后台线程内调用：下载 APK → 校验安装权限 → FileProvider + 系统安装器 */
+    private fun downloadAndInstallApk(url: String) {
+        try {
+            val dir = File(cacheDir, "updates").apply { mkdirs() }
+            // 清掉历史安装包，避免缓存堆积
+            dir.listFiles()?.forEach { it.delete() }
+            val file = File(dir, "update_${System.currentTimeMillis()}.apk")
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 60_000
+            conn.instanceFollowRedirects = true
+            conn.inputStream.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+            runOnUiThread {
+                if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                    toast("已下载，请先允许「安装未知应用」后重试")
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:$packageName"),
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    return@runOnUiThread
+                }
+                toast("下载完成，正在打开安装器…")
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                startActivity(
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, APK_MIME)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                )
+            }
+        } catch (e: Exception) {
+            runOnUiThread { toast("下载失败: ${e.message ?: e.javaClass.simpleName}") }
+        }
+    }
+
+    private fun toast(msg: String) {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     // ==================== 外链跳转 ====================

@@ -135,13 +135,13 @@
 
 <script setup>
 import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
-import { useFileManager } from '../composables/useFileManager.js'
-import { useViewer } from '../composables/useViewer.js'
-import { useHoverPreview } from '../composables/useHoverPreview.js'
-import { useFilePopover } from '../composables/useFilePopover.js'
-import { useToast } from '../composables/useToast.js'
-import { usePromptDialog } from '../composables/usePromptDialog.js'
-import { useLongPressSelect } from '../composables/useLongPressSelect.js'
+import { useFileManager } from '../composables/useFileManager'
+import { useViewer } from '../composables/useViewer'
+import { useHoverPreview } from '../composables/useHoverPreview'
+import { useFilePopover } from '../composables/useFilePopover'
+import { useToast } from '../composables/useToast'
+import { usePromptDialog } from '../composables/usePromptDialog'
+import { useLongPressSelect } from '../composables/useLongPressSelect'
 import { getFileIcon, smartDownload, isLAN } from '../utils/helpers.js'
 import { isTextFile, isPreviewSupported, iconTypeClass } from '../utils/fileTypes.js'
 import HoverPreviewPopover from './HoverPreviewPopover.vue'
@@ -380,6 +380,7 @@ watch(() => props.groups, async () => {
   flex-direction: column;
   gap: 12px;
   user-select: none;
+  overflow: hidden;
 }
 
 .file-card:hover {

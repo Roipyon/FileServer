@@ -122,10 +122,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch, reactive } from 'vue'
-import { useClipboard } from '../composables/useClipboard.js'
-import { useFileManager } from '../composables/useFileManager.js'
-import { useToast } from '../composables/useToast.js'
-import { useConfirmDialog } from '../composables/useConfirmDialog.js'
+import { useClipboard } from '../composables/useClipboard'
+import { useFileManager } from '../composables/useFileManager'
+import { useToast } from '../composables/useToast'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { groupItemsByTime, hashString } from '../utils/helpers.js'
 import ClipboardItem from './ClipboardItem.vue'
 

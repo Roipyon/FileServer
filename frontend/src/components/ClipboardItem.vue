@@ -79,9 +79,9 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { useClipboard } from '../composables/useClipboard.js'
-import { useToast } from '../composables/useToast.js'
-import { useConfirmDialog } from '../composables/useConfirmDialog.js'
+import { useClipboard } from '../composables/useClipboard'
+import { useToast } from '../composables/useToast'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { formatRelativeTime, isLink as checkIsLink, normalizeUrl } from '../utils/helpers.js'
 
 const { confirm } = useConfirmDialog()

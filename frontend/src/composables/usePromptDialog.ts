@@ -1,6 +1,26 @@
 import { ref, nextTick } from 'vue'
 
-const dialogState = ref({
+export interface PromptOptions {
+  title?: string
+  placeholder?: string
+  confirmText?: string
+  cancelText?: string
+  /** 为 true 时输入为空则禁用确定 */
+  required?: boolean
+}
+
+interface PromptDialogState {
+  visible: boolean
+  title: string
+  message: string
+  defaultValue: string
+  placeholder: string
+  confirmText: string
+  cancelText: string
+  required: boolean
+}
+
+const dialogState = ref<PromptDialogState>({
   visible: false,
   title: '',
   message: '',
@@ -8,13 +28,13 @@ const dialogState = ref({
   placeholder: '',
   confirmText: '确定',
   cancelText: '取消',
-  required: false,   // 为 true 时输入为空则禁用确定
+  required: false,
 })
 
-let resolveCallback = null
+let resolveCallback: ((value: string | null) => void) | null = null
 
 export function usePromptDialog() {
-  function prompt(message, defaultValue = '', options = {}) {
+  function prompt(message: string, defaultValue = '', options: PromptOptions = {}): Promise<string | null> {
     return new Promise((resolve) => {
       dialogState.value = {
         visible: true,
@@ -30,21 +50,21 @@ export function usePromptDialog() {
     })
   }
 
-  function handleConfirm(value) {
+  function handleConfirm(value: string): void {
     if (resolveCallback) {
       resolveCallback(value)
       reset()
     }
   }
 
-  function handleCancel() {
+  function handleCancel(): void {
     if (resolveCallback) {
       resolveCallback(null)
       reset()
     }
   }
 
-  function reset() {
+  function reset(): void {
     dialogState.value.visible = false
     resolveCallback = null
   }

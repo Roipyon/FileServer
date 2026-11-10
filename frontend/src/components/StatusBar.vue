@@ -25,8 +25,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useFileManager } from '../composables/useFileManager.js'
-import { useClipboard } from '../composables/useClipboard.js'
+import { useFileManager } from '../composables/useFileManager'
+import { useClipboard } from '../composables/useClipboard'
 
 defineEmits(['open-connection-info'])
 
