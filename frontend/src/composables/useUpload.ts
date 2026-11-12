@@ -4,10 +4,13 @@ import { useToast } from './useToast'
 import { useConfirmDialog, type ConfirmAction, type ConfirmResult } from './useConfirmDialog'
 import { isLAN } from '../utils/helpers.js'
 
-const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB
+const CHUNK_SIZE_MIN = 1 * 1024 * 1024  // 1MB 起步
+const CHUNK_SIZE_MAX = 8 * 1024 * 1024  // 高延迟链路自动加倍，摊薄每片往返
 const BYTES_PER_MB = 1024 * 1024
 const UPLOAD_CONCURRENCY = 3   // 文件级并发数
-const CHUNK_CONCURRENCY = 2    // 单文件内分片并发数
+const CHUNK_CONCURRENCY_START = 2  // 单文件内分片并发起步
+const CHUNK_CONCURRENCY_MAX = 5    // 浏览器单域 6 连接，留一余量
+const CHUNK_RETRY = 3              // 单片失败重试次数
 
 export type UploadStatus = 'waiting' | 'uploading' | 'success' | 'error' | 'skipped'
 
@@ -26,24 +29,30 @@ export interface UploadItem {
 
 type ConflictAction = 'overwrite' | 'rename' | 'skip'
 
+// —— 模块级单例状态：粘贴/拖拽（App）与上传弹层必须共享同一队列与进度 ——
+const uploading = ref(false)
+const uploadProgress = ref(0)
+const uploadStatus = ref('')
+const uploadFiles = ref<UploadItem[]>([])
+
+// 速度/剩余时间
+const uploadSpeed = ref(0)      // MB/s
+const uploadEta = ref('')       // 格式化后的剩余时间
+const rawSpeed = ref(0)         // 原始瞬时速度 (bytes/s)
+
+let uploadSeq = 0 // 队列项稳定 id（v-for key，删除中间项不干扰动画）
+
+// 直达上传（整页拖拽/粘贴）结束时自动收场弹层；弹窗内手动上传保持打开便于继续添加。
+// 每次 startUpload 都按入参重置，手动路径不会继承上一次的自动收场意图
+let autoCloseOnFinish = false
+
 export function useUpload() {
-  const uploading = ref(false)
-  const uploadProgress = ref(0)
-  const uploadStatus = ref('')
-  const uploadFiles = ref<UploadItem[]>([])
-
-  // 速度/剩余时间
-  const uploadSpeed = ref(0)      // MB/s
-  const uploadEta = ref('')       // 格式化后的剩余时间
-  const rawSpeed = ref(0)         // 原始瞬时速度 (bytes/s)
-
   const toast = useToast()
   const { confirm } = useConfirmDialog()
 
   const SPEED_SAMPLES = 5        // 移动平均窗口（更小，反应更快）
   const SPEED_LOW_PASS = 0.4     // 低通滤波因子（瞬时速度权重）
 
-  let uploadSeq = 0 // 队列项稳定 id（v-for key，删除中间项不干扰动画）
 
   /**
    * 追加待上传文件（不清空已有队列，支持在弹窗内逐次添加）。
@@ -303,7 +312,8 @@ export function useUpload() {
     rawSpeed.value = 0
   }
 
-  async function startUpload(): Promise<boolean> {
+  async function startUpload(opts?: { autoClose?: boolean }): Promise<boolean> {
+    autoCloseOnFinish = opts?.autoClose === true
     if (uploadFiles.value.length === 0) return false
     uploading.value = true
 
@@ -390,42 +400,78 @@ export function useUpload() {
   }
 
   /**
-   * 外网上传：1MB 分片上传，避免大文件超时；文件级并发 + 文件内分片并发
+   * 外网上传：分片上传，避免大文件超时；文件级并发 + 文件内分片动态并发。
+   * 分片大小按前一个文件的实测耗时自适应（慢链路加倍摊薄往返延迟），
+   * 单片失败自动重试，链路快时逐步加 worker 提高并发。
    */
   async function uploadChunked(activeFiles: UploadItem[]): Promise<boolean> {
     const totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
     const tick = createProgressAggregator(totalBytes)
     let hasError = false
+    let batchSize = CHUNK_SIZE_MIN  // 跨文件自适应：上一文件慢则本文件加大分片
 
     try {
       await runPool(activeFiles, async (item) => {
         const file = item.file
-        const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
+        const CHUNK = batchSize
+        const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK))
         const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}-${Math.random().toString(36).slice(2)}`
         item.status = 'uploading'
 
         const chunkLoaded = new Array<number>(totalChunks).fill(0)
         const chunkIndexes = Array.from({ length: totalChunks }, (_, i) => i)
 
+        const uploadOne = async (chunkIndex: number): Promise<void> => {
+          const start = chunkIndex * CHUNK
+          const chunk = file.slice(start, Math.min(start + CHUNK, file.size))
+          let lastErr: unknown
+          for (let attempt = 1; attempt <= CHUNK_RETRY; attempt++) {
+            try {
+              chunkLoaded[chunkIndex] = 0
+              const formData = new FormData()
+              formData.append('fileId', fileId)
+              formData.append('chunkIndex', String(chunkIndex))
+              formData.append('totalChunks', String(totalChunks))
+              formData.append('fileName', file.name)
+              formData.append('chunk', chunk)
+              await uploadChunk(formData, (loaded) => {
+                chunkLoaded[chunkIndex] = loaded
+                tick(item, chunkLoaded.reduce((a, b) => a + b, 0))
+              })
+              return
+            } catch (err) {
+              lastErr = err
+              await new Promise((r) => setTimeout(r, 600 * attempt))
+            }
+          }
+          throw lastErr
+        }
+
+        // 动态分片池：起步 MIN 个 worker，持续跑得快就加到 MAX
+        let cursor = 0
+        let spawned = 0
+        const durations: number[] = []
+        const promises: Promise<void>[] = []
+        const spawnWorker = async (): Promise<void> => {
+          while (cursor < chunkIndexes.length) {
+            const chunkIndex = chunkIndexes[cursor++]
+            const t0 = performance.now()
+            await uploadOne(chunkIndex)
+            durations.push(performance.now() - t0)
+            if (durations.length >= 4 && durations.length % 4 === 0) {
+              const avg = durations.slice(-4).reduce((a, b) => a + b, 0) / 4
+              if (avg < 400 && spawned < CHUNK_CONCURRENCY_MAX) {
+                spawned++
+                promises.push(spawnWorker())
+              }
+            }
+          }
+        }
+        spawned = CHUNK_CONCURRENCY_START
+        for (let i = 0; i < CHUNK_CONCURRENCY_START; i++) promises.push(spawnWorker())
+
         try {
-          await runPool(chunkIndexes, async (chunkIndex) => {
-            const start = chunkIndex * CHUNK_SIZE
-            const end = Math.min(start + CHUNK_SIZE, file.size)
-            const chunk = file.slice(start, end)
-
-            const formData = new FormData()
-            formData.append('fileId', fileId)
-            formData.append('chunkIndex', String(chunkIndex))
-            formData.append('totalChunks', String(totalChunks))
-            formData.append('fileName', file.name)
-            formData.append('chunk', chunk)
-
-            await uploadChunk(formData, (loaded) => {
-              chunkLoaded[chunkIndex] = loaded
-              const fileLoaded = chunkLoaded.reduce((a, b) => a + b, 0)
-              tick(item, fileLoaded)
-            })
-          }, CHUNK_CONCURRENCY)
+          await Promise.all(promises)
 
           const mergeResult = await mergeChunks(fileId, file.name, totalChunks, item.overwrite)
           if (mergeResult && mergeResult.name) {
@@ -433,6 +479,12 @@ export function useUpload() {
           }
           item.status = 'success'
           tick(item, file.size)
+
+          // 本文件整体偏慢（高延迟链路）→ 下个文件用更大分片
+          if (durations.length >= 4) {
+            const avg = durations.reduce((a, b) => a + b, 0) / durations.length
+            if (avg > 1500 && batchSize < CHUNK_SIZE_MAX) batchSize = Math.min(CHUNK_SIZE_MAX, batchSize * 2)
+          }
         } catch (err) {
           item.status = 'error'
           item.error = err instanceof Error ? err.message : String(err)
@@ -470,5 +522,6 @@ export function useUpload() {
     startUpload,
     retryItem,
     retryAll,
+    shouldAutoClose: () => autoCloseOnFinish,
   }
 }

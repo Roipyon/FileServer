@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import QRCode from 'qrcode'
 import { copyToClipboard } from '../utils/clipboard.js'
+import { setClientIsLAN } from '../utils/helpers.js'
 import { useToast } from './useToast'
 
 const toast = useToast()
@@ -13,6 +14,7 @@ interface ServerInfoData {
   port?: number
   version?: string
   webOverride?: boolean
+  clientIsLAN?: boolean
 }
 
 const state = reactive({
@@ -56,6 +58,7 @@ async function fetchInfo(forceRefresh = false): Promise<void> {
     state.port = data.port || 0
     state.serverVersion = data.version || ''
     state.webOverride = !!data.webOverride
+    setClientIsLAN(typeof data.clientIsLAN === 'boolean' ? data.clientIsLAN : null)
   } catch (err) {
     toast.error(`获取服务器信息失败: ${err instanceof Error ? err.message : String(err)}`)
     state.error = (err instanceof Error ? err.message : String(err)) || '获取连接信息失败'

@@ -165,7 +165,8 @@ import { useFilePopover } from '../composables/useFilePopover'
 import { useToast } from '../composables/useToast'
 import { usePromptDialog } from '../composables/usePromptDialog'
 import { useLongPressSelect } from '../composables/useLongPressSelect'
-import { parseFileSize, getFileIcon, smartDownload, isLAN } from '../utils/helpers.js'
+import { parseFileSize, getFileIcon, smartDownload, isLAN, isAndroidShell, isAndroidUA } from '../utils/helpers.js'
+import { useDownloadProgress } from '../composables/useDownloadProgress'
 import { isTextFile, isPreviewSupported, iconTypeClass } from '../utils/fileTypes.js'
 import HoverPreviewPopover from './HoverPreviewPopover.vue'
 import ShareDialog from './ShareDialog.vue'
@@ -243,24 +244,39 @@ function formatDate(dateStr) {
 }
 
 function handleDownload(file) {
-  if (isLAN()) {
-    // 内网：直接下载
-    const a = document.createElement('a')
-    a.href = getDownloadUrl(file.name)
-    a.download = file.name
-    a.click()
-    return
+  try {
+    if (isLAN() || isAndroidShell()) {
+      // 内网/应用壳：原生下载，面板出一条回执（是否被浏览器拦截一眼可见）
+      const a = document.createElement('a')
+      a.href = getDownloadUrl(file.name)
+      a.download = file.name
+      a.click()
+      return
+    }
+    // 安卓浏览器：同步跳转触发系统下载。异步 Blob 的二次点击会被部分机型
+    // 当作无手势自动下载静默丢弃（手势早已过期），必须留在手势内完成
+    if (isAndroidUA()) {
+      window.location.href = getDownloadUrl(file.name)
+      return
+    }
+    // 外网：流式写盘（另存为）或 Blob 兜底，页面内显示进度/速度/剩余时间
+    const dl = useDownloadProgress()
+    const task = dl.start(file.name)
+    smartDownload(getDownloadUrl(file.name), file.name, task.tick)
+      .then(() => {
+        task.finish()
+        toast.success(`下载完成: ${file.name}`)
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          try { new Notification('FileServer - 下载完成', { body: file.name, icon: '/notify-icon.png' }) } catch {}
+        }
+      })
+      .catch(err => {
+        task.fail()
+        toast.error(`下载失败 ${file.name}: ${err.message}`)
+      })
+  } catch (err) {
+    toast.error(`下载异常: ${err && err.message ? err.message : err}`)
   }
-  // 外网：分块下载，仅提示开始和结束，避免循环中频繁弹窗
-  toast.info(`正在下载 ${file.name}，完成后会自动保存...`)
-  smartDownload(
-    getDownloadUrl(file.name),
-    file.name
-  ).then(() => {
-    toast.success(`下载完成: ${file.name}`)
-  }).catch(err => {
-    toast.error(`下载失败 ${file.name}: ${err.message}`)
-  })
 }
 
 function handlePreview(file) {

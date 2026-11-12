@@ -231,30 +231,46 @@ export function groupFilesByTime(files) {
   return result
 }
 
-/**
- * 判断当前访问是否来自内网
- * 通过检测 hostname 是否为私有 IP 段、localhost 或 .local 域名
- * @returns {boolean}
- */
-export function isLAN() {
-  const host = window.location.hostname
-  // 私有 IP 段
-  if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(host)) return true
-  // localhost
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true
-  return false
+/** 安卓应用壳（WebView）：下载交给壳层下载管理器（通知栏进度、断点续传）。
+ *  新版 WebView 的 UA 已移除 wv 标记，Version/4.0 是壳层独有信号 */
+export function isAndroidShell() {
+  const ua = navigator.userAgent
+  return /Android/i.test(ua) && (/; wv\)/i.test(ua) || /Version\/4\.0/.test(ua))
+}
+
+/** 是否安卓端（含壳层与浏览器），用于整包更新等端判定 */
+export function isAndroidUA() {
+  return /Android/i.test(navigator.userAgent)
+}
+
+// 服务端按连接来源判定的真值；null = 尚未拿到（按外网保守处理）
+let serverSaysLan = null
+
+/** 由 useServerInfo 在拿到 server-info 后注入（服务端按来源 IP 事实判定） */
+export function setClientIsLAN(v) {
+  serverSaysLan = typeof v === 'boolean' ? v : null
 }
 
 /**
- * 智能下载：内网直接下载，外网使用 fetch 带进度下载并拼装为 Blob
+ * 判断当前访问是否来自内网
+ * 唯一依据：服务端按连接来源 IP 判定的 clientIsLAN（server-info 下发）。
+ * 未拿到时按外网处理——保守降级，不做任何形态猜测
+ */
+export function isLAN() {
+  return serverSaysLan === true
+}
+
+/**
+ * 智能下载：内网原生下载；外网优先「另存为」流式写盘（恒定内存），
+ * 不支持时回落 fetch 分块 + Blob（大文件占内存，仅作兜底）
  * @param {string} url - 下载 URL
  * @param {string} filename - 保存文件名
  * @param {function} onProgress - 进度回调 (loaded, total)
  * @returns {Promise<void>}
  */
 export async function smartDownload(url, filename, onProgress) {
-  if (isLAN()) {
-    // 内网：直接使用浏览器默认下载（快且不占内存）
+  if (isLAN() || isAndroidShell()) {
+    // 内网：浏览器原生下载（快且不占内存）；应用壳：交壳层下载管理器（通知栏进度、断点续传）
     const a = document.createElement('a')
     a.href = url
     a.download = filename
@@ -262,7 +278,42 @@ export async function smartDownload(url, filename, onProgress) {
     return
   }
 
-  // 外网：使用 fetch + ReadableStream 分块下载，避免大文件超时
+  // 外网：优先系统「另存为」+ 流式写盘（桌面 Chromium）
+  if (window.showSaveFilePicker) {
+    let writable = null
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename })
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
+      const total = parseInt(response.headers.get('Content-Length') || '0', 10)
+      const reader = response.body.getReader()
+      writable = await handle.createWritable()
+      let loaded = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        await writable.write(value)
+        loaded += value.length
+        if (onProgress) onProgress(loaded, total)
+      }
+      await writable.close()
+      writable = null
+      return
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw err // 用户取消另存为
+      if (err && err.name === 'NotAllowedError') throw err // 未授权保存
+      // 其他错误（磁盘满等）回落 Blob；writable 交给 abort 清理
+      if (writable) {
+        try {
+          await writable.abort()
+        } catch {
+          /* 已关闭则忽略 */
+        }
+      }
+    }
+  }
+
+  // 兜底：fetch 分块 + Blob（读入内存后保存）
   const response = await fetch(url)
   if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
 

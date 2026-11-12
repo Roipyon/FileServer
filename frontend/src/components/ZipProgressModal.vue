@@ -163,6 +163,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useFileManager } from '../composables/useFileManager'
 import { useToast } from '../composables/useToast'
 import { startZipTask, getZipProgress, getZipDownloadUrl, cancelZipTask } from '../api/fileApi'
+import { isLAN, isAndroidShell, isAndroidUA } from '../utils/helpers.js'
 
 const emit = defineEmits(['close'])
 const { state } = useFileManager()
@@ -304,7 +305,11 @@ function startPolling() {
         phase.value = 'done'
         // 自动触发下载（但空 ZIP 不自动下载）
         if (info.totalFiles > 0) {
-          await autoDownload()
+          // 安卓浏览器会静默丢弃无手势触发的下载——不白点一次，
+          // 直接让用户按「立即下载」（壳内无此限制，仍自动触发）
+          if (!(isAndroidUA() && !isAndroidShell())) {
+            await autoDownload()
+          }
         } else {
           // 空结果提示用户手动决定
           toast.info('没有有效文件，压缩包为空')
@@ -364,7 +369,24 @@ async function triggerDownload() {
   const zipName = progress.value.zipName || 'files.zip'
 
   try {
-    // 尝试使用 fetch + Blob 方式（支持自定义文件名）
+    // 内网：原生下载（浏览器下载条接管，零内存），download 属性即自定义文件名
+    if (isLAN()) {
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = zipName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+
+      // 应用壳内由壳层 toast + 通知栏反馈，前端不再重复提示
+      if (!isAndroidShell()) {
+        sendNotification(`「${zipName}」下载已开始`)
+        toast.success(`打包完成，开始下载 ${zipName}`)
+      }
+      return
+    }
+
+    // 外网：fetch + Blob（支持进度与自定义文件名）
     const res = await fetch(downloadUrl)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
@@ -414,7 +436,7 @@ function sendNotification(body) {
 
   if (Notification.permission === 'granted') {
     try {
-      new Notification('FileServer - 打包完成', { body, icon: '/favicon.ico' })
+      new Notification('FileServer - 打包完成', { body, icon: '/notify-icon.png' })
       return true
     } catch (e) {
       return false
@@ -425,7 +447,7 @@ function sendNotification(body) {
     Notification.requestPermission().then(perm => {
       if (perm === 'granted') {
         try {
-          new Notification('FileServer - 打包完成', { body, icon: '/favicon.ico' })
+          new Notification('FileServer - 打包完成', { body, icon: '/notify-icon.png' })
         } catch (e) { /* ignore */ }
       }
     })

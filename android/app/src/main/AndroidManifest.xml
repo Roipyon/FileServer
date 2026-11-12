@@ -36,7 +36,20 @@
         <activity
             android:name=".BrowserActivity"
             android:configChanges="uiMode"
-            android:exported="false" />
+            android:exported="true"
+            android:launchMode="singleTask">
+            <!-- 系统分享入口：截图/相册图片 → 分享 → FileServer 直传共享目录 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".FileServerService"
             android:exported="false"

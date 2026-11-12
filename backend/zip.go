@@ -3,6 +3,7 @@ package main
 
 import (
 	"archive/zip"
+	"compress/flate"
 	"fmt"
 	"io"
 	"log"
@@ -16,7 +17,7 @@ import (
 )
 
 const maxFilesPerZip = 1000
-const taskCleanupMs = 5 * 60 * 1000
+const taskCleanupMs = 30 * 60 * 1000 // 打包产物保留 30 分钟：中转链路下载大包耗时可观，且用户可能中途取消后再下
 
 type zipTask struct {
 	mu            sync.Mutex
@@ -96,6 +97,9 @@ func startZipPack(task *zipTask, files []string) {
 	defer outFile.Close()
 
 	zw := zip.NewWriter(outFile)
+	zw.RegisterCompressor(zip.Deflate, func(w io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(w, 1)
+	})
 	defer zw.Close()
 
 	validCount := 0
@@ -123,8 +127,8 @@ func startZipPack(task *zipTask, files []string) {
 			continue
 		}
 
-		// 扁平条目，名称 = 原文件名
-		hdr := &zip.FileHeader{Name: fileName, Method: zip.Deflate}
+		// 扁平条目，名称 = 原文件名；媒体/已压缩格式直接 STORE，文本用轻量压缩提速
+		hdr := &zip.FileHeader{Name: fileName, Method: storeMethod(fileName)}
 		hdr.Modified = info.ModTime()
 		hdr.SetMode(info.Mode())
 		dst, err := zw.CreateHeader(hdr)
@@ -322,4 +326,18 @@ func handleZipCancel(w http.ResponseWriter, r *http.Request, taskID string) {
 
 	os.Remove(task.outputPath)
 	sendJSON(w, 200, map[string]any{"success": true, "taskId": taskID})
+}
+
+// storeMethod — 已压缩媒体再压无收益且烧 CPU，直接 STORE；
+// 其余（文本/文档类）用 deflate 级别 1，速度约为默认级别 6 的三倍，打包小文件不再拖后腿
+func storeMethod(name string) uint16 {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".avif",
+		".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv",
+		".mp3", ".flac", ".ogg", ".wav", ".aac", ".m4a", ".opus",
+		".zip", ".7z", ".rar", ".gz", ".bz2", ".xz", ".zst", ".apk", ".iso",
+		".pdf", ".docx", ".xlsx", ".pptx", ".epub":
+		return zip.Store
+	}
+	return zip.Deflate
 }

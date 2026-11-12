@@ -186,7 +186,16 @@
       />
     </Teleport>
 
+    <!-- 整页拖拽投放层 -->
+    <div v-if="dragActive" class="page-drop-overlay">
+      <div class="page-drop-inner">
+        <i class="fas fa-cloud-arrow-up"></i>
+        <p>松开上传到共享目录</p>
+      </div>
+    </div>
+
     <!-- Shared Toast & Confirm Dialog (self-teleport to body) -->
+    <DownloadProgress />
     <ToastContainer v-if="!isUploadPage" />
     <ConfirmDialog v-if="!isUploadPage" />
     <PromptDialog v-if="!isUploadPage" />
@@ -202,6 +211,7 @@ import UploadOverlay from './components/UploadOverlay.vue'
 import FloatingMenu from './components/FloatingMenu.vue'
 import StatusBar from './components/StatusBar.vue'
 import FileViewer from './components/FileViewer.vue'
+import DownloadProgress from './components/DownloadProgress.vue'
 import ToastContainer from './components/ToastContainer.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import PromptDialog from './components/PromptDialog.vue'
@@ -210,6 +220,8 @@ import ZipProgressModal from './components/ZipProgressModal.vue'
 import { sendClipboard } from './api/clipboardApi'
 import { generateUploadToken } from './api/fileApi'
 import { useToast } from './composables/useToast'
+import { useUpload } from './composables/useUpload'
+import { useServerInfo } from './composables/useServerInfo'
 import { useConfirmDialog } from './composables/useConfirmDialog'
 import { usePromptDialog } from './composables/usePromptDialog'
 import { useTheme } from './composables/useTheme'
@@ -247,8 +259,10 @@ const {
 
 const { loadItems: refreshClipboard, getDeviceName } = useClipboard()
 const toast = useToast()
+const { addFiles, startUpload } = useUpload()
 const { confirm } = useConfirmDialog()
 const { prompt } = usePromptDialog()
+const { fetchInfo: prefetchServerInfo } = useServerInfo()
 
 const showUpload = ref(false)
 const showConnectionInfo = ref(false)
@@ -487,11 +501,71 @@ function changeSection() {
   state.currentSection = window.location.hash.slice(2) || 'files'
 }
 
+// 整页拖拽上传：拖着文件进窗口任意位置即浮出投放层，松手即传
+const dragDepth = ref(0)
+const dragActive = computed(() => dragDepth.value > 0)
+
+function dragHasFiles(e) {
+  return Array.from(e.dataTransfer?.types || []).includes('Files')
+}
+
+function onPageDragEnter(e) {
+  if (!dragHasFiles(e)) return
+  e.preventDefault()
+  dragDepth.value++
+}
+
+function onPageDragOver(e) {
+  if (!dragHasFiles(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+function onPageDragLeave(e) {
+  if (!dragHasFiles(e) && dragDepth.value === 0) return
+  if (dragDepth.value > 0) dragDepth.value--
+}
+
+function onPageDrop(e) {
+  dragDepth.value = 0
+  if (e.defaultPrevented) return // 上传弹层等已处理
+  const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.size > 0 || f.type)
+  if (files.length === 0) return
+  e.preventDefault()
+  showUpload.value = true
+  addFiles(files)
+  startUpload({ autoClose: true }) // 直达上传：完成后自动收场
+}
+
+// 粘贴截图/图片即上传：桌面复制图片后 Ctrl+V 直达共享目录
+function handlePaste(e) {
+  const images = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (images.length === 0) return
+  e.preventDefault()
+  const stamp = Date.now()
+  const renamed = images.map((f, i) => new File(
+    [f],
+    `粘贴图片_${stamp}${images.length > 1 ? '-' + i : ''}.${(f.name.split('.').pop() || 'png').toLowerCase()}`,
+    { type: f.type }
+  ))
+  showUpload.value = true
+  addFiles(renamed)
+  startUpload({ autoClose: true }) // 直达上传：完成后自动收场
+}
+
 onMounted(() => {
   loadFiles()
   startAutoRefresh(5000)
+  // 启动即取 server-info：clientIsLAN 依赖它判定内外网，
+  // 不能等用户打开连接面板——否则拖拽/粘贴上传会误走外网分片路径
+  prefetchServerInfo()
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('hashchange', changeSection)
+  window.addEventListener('paste', handlePaste)
+  window.addEventListener('dragenter', onPageDragEnter)
+  window.addEventListener('dragover', onPageDragOver)
+  window.addEventListener('dragleave', onPageDragLeave)
+  window.addEventListener('drop', onPageDrop)
 
   // 兜底修正：如果浏览器不支持 dvh，手动计算高度
   const appLayout = document.querySelector('.app-layout')
@@ -511,6 +585,11 @@ onMounted(() => {
 onUnmounted(() => {
   stopAutoRefresh()
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('paste', handlePaste)
+  window.removeEventListener('dragenter', onPageDragEnter)
+  window.removeEventListener('dragover', onPageDragOver)
+  window.removeEventListener('dragleave', onPageDragLeave)
+  window.removeEventListener('drop', onPageDrop)
   window.removeEventListener('hashchange', changeSection)
   if (window._fixHeightCleanup) {
     window.removeEventListener('resize', window._fixHeightCleanup)
@@ -1045,5 +1124,39 @@ onUnmounted(() => {
   .content-scroll {
     padding: 12px;
   }
+}
+
+/* 整页拖拽投放层 */
+.page-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: color-mix(in srgb, var(--bg-base, #0b1220) 72%, transparent);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.page-drop-inner {
+  border: 2px dashed var(--accent);
+  border-radius: 24px;
+  padding: 48px 72px;
+  text-align: center;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+  box-shadow: var(--shadow-card-hover, 0 12px 40px rgba(0, 0, 0, 0.35));
+}
+
+.page-drop-inner i {
+  font-size: 2.6rem;
+  color: var(--accent);
+}
+
+.page-drop-inner p {
+  margin: 14px 0 0;
+  font-size: 1.02rem;
+  font-weight: 700;
 }
 </style>

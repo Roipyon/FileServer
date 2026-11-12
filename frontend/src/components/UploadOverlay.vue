@@ -122,7 +122,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'upload-complete'])
-const { uploading, uploadProgress, uploadStatus, uploadSpeed, uploadEta, uploadFiles, addFiles, removeFile, clearFiles, startUpload, retryItem, retryAll } = useUpload()
+const { uploading, uploadProgress, uploadStatus, uploadSpeed, uploadEta, uploadFiles, addFiles, removeFile, clearFiles, startUpload, retryItem, retryAll, shouldAutoClose } = useUpload()
 
 // 接收外部传入的待上传文件（移动端拍照/相册/文件选择）：
 // 仅加入队列，不自动上传——用户可在弹窗内继续逐个添加，统一按"开始上传"提交
@@ -172,13 +172,25 @@ function getUploadedNames() {
     .map(item => item.name)
 }
 
+/** 收场：清队列并通知外层（刷新列表/高亮新文件）。弹窗内手动上传收场后保持打开 */
+function finishSession() {
+  const names = getUploadedNames()
+  clearFiles()
+  emit('upload-complete', names)
+}
+
+// 直达上传（整页拖拽/粘贴）全部成功即自动关闭，丢完即走；
+// 有失败项则留在原地便于重试；弹窗内手动上传永不自动关闭
+watch(uploading, (now, prev) => {
+  if (!prev || now || !shouldAutoClose()) return
+  if (uploadFiles.value.some((f) => f.status === 'error')) return
+  finishSession()
+  close()
+})
+
 async function start() {
   const ok = await startUpload()
-  if (ok) {
-    const names = getUploadedNames()
-    clearFiles()
-    emit('upload-complete', names)
-  }
+  if (ok) finishSession()
 }
 
 function statusLabel(s) {

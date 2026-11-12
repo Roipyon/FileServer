@@ -1,11 +1,11 @@
 {
   "name": "file-server-frontend",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/check-imports.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

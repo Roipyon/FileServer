@@ -12,8 +12,8 @@ android {
         applicationId = "com.fileserver.go"
         minSdk = 23
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.2.0"
+        versionCode = 6
+        versionName = "2.3.0"
     }
 
     // ABI 拆分：arm64 真机包 / x86_64 模拟器包各发一个，universal 兜底（两者合一）

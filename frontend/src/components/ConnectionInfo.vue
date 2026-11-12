@@ -217,10 +217,22 @@
                   <i class="fas fa-info-circle"></i> {{ updateState.notice }}
                 </div>
 
+                <!-- 检查到更新后展开 release 说明，看过变更再决定 -->
+                <div v-if="releaseNotesSegs.length" class="conn-update-notes">
+                  <div class="conn-update-notes-title">
+                    <i class="fas fa-list-check"></i> 更新内容
+                  </div>
+                  <template v-for="(seg, i) in releaseNotesSegs" :key="i">
+                    <div v-if="seg.type === 'h'" class="conn-note-h">{{ seg.text }}</div>
+                    <div v-else-if="seg.type === 'li'" class="conn-note-li">{{ seg.text }}</div>
+                    <div v-else class="conn-note-p">{{ seg.text }}</div>
+                  </template>
+                </div>
+
                 <div class="conn-update-actions">
-                  <button class="conn-update-check" :disabled="!!updateState.phase" @click="doUpdateAll">
-                    <i class="fas fa-arrows-rotate"></i>
-                    {{ phaseText }}
+                  <button class="conn-update-check" :disabled="!!updateState.phase" @click="doUpdateAction">
+                    <i class="fas" :class="updateState.available && !updateState.phase ? 'fa-download' : 'fa-arrows-rotate'"></i>
+                    {{ actionText }}
                   </button>
                   <button
                     v-if="state.webOverride"
@@ -274,7 +286,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const { state, fetchInfo, generateQR, collapse, copyUrl, resetCache } = useServerInfo()
-const { state: updateState, updateAll, rollback } = useUpdate()
+const { state: updateState, checkUpdate, applyUpdate, rollback } = useUpdate()
 
 // 最新版本：检查到可用更新时取清单版本，未发现时与当前一致
 const latestVersion = computed(() => {
@@ -294,9 +306,37 @@ const phaseText = computed(() => {
   return map[updateState.phase] || '检查更新'
 })
 
-function doUpdateAll() {
-  updateAll(state.serverVersion)
+// 按钮文案：检查到更新且空闲时变为「立即更新」，其余随阶段
+const actionText = computed(() =>
+  !updateState.phase && updateState.available ? '立即更新' : phaseText.value
+)
+
+function doUpdateAction() {
+  if (!updateState.phase && updateState.available) {
+    applyUpdate(state.serverVersion)
+  } else {
+    checkUpdate()
+  }
 }
+
+// release body 按行解析为轻量段落：标题 / 列表项（- * + / 1.）/ 普通行；
+// 内联反引号去除（轻量渲染不保留 code 语义，裸露更难看）。不引 markdown 渲染库
+const releaseNotesSegs = computed(() => {
+  const body = (updateState.available?.notes || '').trim()
+  if (!body) return []
+  return body
+    .split(/\r?\n/)
+    .map((line) => {
+      const t = line.trim()
+      if (!t) return null
+      if (/^#{1,6}\s/.test(t)) return { type: 'h', text: t.replace(/^#{1,6}\s*/, '') }
+      if (/^[-*+]\s+/.test(t)) return { type: 'li', text: t.replace(/^[-*+]\s+/, '') }
+      if (/^\d+[.)]\s+/.test(t)) return { type: 'li', text: t.replace(/^\d+[.)]\s+/, '') }
+      return { type: 'p', text: t }
+    })
+    .map((seg) => (seg ? { ...seg, text: seg.text.replace(/`/g, '') } : seg))
+    .filter(Boolean)
+})
 
 async function doRollback() {
   await rollback()
@@ -1037,6 +1077,63 @@ onUnmounted(() => {
   color: var(--text-secondary);
   margin-bottom: 8px;
   line-height: 1.5;
+}
+
+.conn-update-notes {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  background: var(--bg-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.conn-update-notes-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.conn-update-notes-title i {
+  color: var(--accent);
+}
+
+.conn-note-h {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 3px;
+}
+
+.conn-note-li,
+.conn-note-p {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  word-break: break-all;
+}
+
+.conn-note-li {
+  position: relative;
+  padding-left: 13px;
+}
+
+.conn-note-li::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .conn-update-actions {

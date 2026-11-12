@@ -218,10 +218,63 @@ func serveServerInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, map[string]any{
 		"urls": urls, "publicUrl": publicUrl, "port": port,
-		"uptime":      time.Since(startedAt).Seconds(),
-		"version":     appVersion,
-		"webOverride": webDistActive(),
+		"uptime":       time.Since(startedAt).Seconds(),
+		"version":      appVersion,
+		"webOverride":  webDistActive(),
+		"clientIsLAN":  clientIsLAN(r),
 	})
+}
+
+// ==================== 连接来源判定 ====================
+
+// 本机网卡子网（启动时枚举一次）：客户端来源 IP 落在其中即内网
+var localSubnets = func() []*net.IPNet {
+	var out []*net.IPNet
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				out = append(out, ipnet)
+			}
+		}
+	}
+	return out
+}()
+
+// clientIsLAN — 事实判定：客户端来源 IP 是否属于内网。
+// 环回 / 本机网卡子网 / 私有段（RFC1918、ULA）/ 链路本地 / CGNAT（虚拟网卡常见）→ 内网；
+// 其余（公网边缘 IP、代理出口）→ 外网。前端据此外网走分片与进度面板，内网走直传。
+func clientIsLAN(r *http.Request) bool {
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		// CGNAT 100.64.0.0/10：Tailscale 等虚拟网段，速度接近内网
+		if v4[0] == 100 && v4[1] >= 64 && v4[1] < 128 {
+			return true
+		}
+	}
+	for _, n := range localSubnets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // ==================== 静态资源（web-dist 磁盘层优先，go:embed 兜底）====================

@@ -14,6 +14,8 @@ export interface UpdateManifest {
   web?: UpdateSection
   server?: UpdateSection
   android?: UpdateSection
+  /** release 说明（发版 body，markdown 纯文本子集），有可用更新时随清单下发 */
+  notes?: string
 }
 
 export interface ServerVersions {

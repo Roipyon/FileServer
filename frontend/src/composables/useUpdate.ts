@@ -8,6 +8,7 @@ import {
   type UpdateManifest
 } from '../api/updateApi'
 import { useToast } from './useToast'
+import { isAndroidUA } from '../utils/helpers.js'
 
 const toast = useToast()
 
@@ -21,15 +22,16 @@ const state = reactive({
 })
 
 /** 安卓壳层 WebView：整包走系统安装器，不做服务端自替换 */
-const isAndroid = /Android/i.test(navigator.userAgent)
+const isAndroid = isAndroidUA()
 
 /**
- * 软件更新：一键检查并应用所有可用段。
+ * 软件更新：检查与应用分两步，中间让用户看过「更新内容」再决定。
  * 桌面 = 前端热更新 + 服务端自替换重启；安卓 = 前端热更新 + 拉起 APK 安装。
  */
 export function useUpdate() {
-  async function updateAll(currentVersion: string): Promise<void> {
-    if (state.phase) return
+  /** 第一步·检查：结果写入 state.available（含 release notes），有更新返回 true */
+  async function checkUpdate(): Promise<boolean> {
+    if (state.phase) return false
     state.phase = 'check'
     state.error = ''
     state.notice = ''
@@ -37,13 +39,26 @@ export function useUpdate() {
       const data = await fetchUpdateManifest()
       state.available = data.available
       state.notice = data.notice || ''
-
-      const a = data.available
-      if (!a) {
+      if (!data.available) {
         toast.info(data.notice || '已是最新版本')
-        return
+        return false
       }
+      return true
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : '检查更新失败'
+      return false
+    } finally {
+      state.phase = ''
+    }
+  }
 
+  /** 第二步·应用：消费 state.available 中已检查到的段（调用前应已获用户确认） */
+  async function applyUpdate(currentVersion: string): Promise<void> {
+    if (state.phase) return
+    const a = state.available
+    if (!a) return
+    state.error = ''
+    try {
       // 前端热更新：桌面与安卓通用
       if (a.web) {
         state.phase = 'web'
@@ -95,5 +110,5 @@ export function useUpdate() {
     }
   }
 
-  return { state, updateAll, rollback }
+  return { state, checkUpdate, applyUpdate, rollback }
 }

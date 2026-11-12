@@ -46,6 +46,7 @@ type updateManifest struct {
 	Web     *updateSection `json:"web"`
 	Server  *updateSection `json:"server"`
 	Android *updateSection `json:"android"`
+	Notes   string         `json:"notes,omitempty"` // release 说明（发版 body），供更新确认时展示
 }
 
 type updateMeta struct {
@@ -467,6 +468,7 @@ const defaultReleasesAPI = "https://api.github.com/repos/Roipyon/FileServer/rele
 
 type ghRelease struct {
 	TagName string    `json:"tag_name"`
+	Body    string    `json:"body"`
 	Assets  []ghAsset `json:"assets"`
 }
 
@@ -531,6 +533,7 @@ func fetchGitHubManifest() (*updateManifest, error) {
 		Web:     section(fmt.Sprintf("FileServer_%s_Web.zip", ver)),
 		Android: section(fmt.Sprintf("FileServer_%s_Android.apk", ver)),
 		Server:  section(platformServerAssetName(ver)),
+		Notes:   truncateNotes(rel.Body),
 	}
 	if m.Web == nil && m.Server == nil && m.Android == nil {
 		return nil, fmt.Errorf("release 无可识别资产")
@@ -577,6 +580,23 @@ func fetchChecksums(client *http.Client, assets []ghAsset) (map[string]string, e
 		return nil, fmt.Errorf("checksums.txt 解析为空")
 	}
 	return sums, nil
+}
+
+// maxNotesBytes — release body 透传上限，防超大正文拖累 manifest 响应
+const maxNotesBytes = 8 << 10
+
+// truncateNotes — release body 裁剪到上限内（按 rune 截断，不切破多字节字符）
+func truncateNotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxNotesBytes {
+		return s
+	}
+	runes := []rune(s)
+	limit := maxNotesBytes / 4
+	if len(runes) > limit {
+		runes = runes[:limit]
+	}
+	return string(runes) + "…"
 }
 
 // platformServerAssetName — 当前平台对应的服务端发布资产名

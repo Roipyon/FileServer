@@ -94,7 +94,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { formatFileSize } from '../utils/helpers.js'
+import { formatFileSize, isLAN } from '../utils/helpers.js'
+import { useServerInfo } from '../composables/useServerInfo'
 
 const props = defineProps({
   token: { type: String, default: '' }
@@ -143,6 +144,10 @@ function addFiles(newFiles) {
 }
 
 onMounted(() => {
+  // 独立页面没有连接面板，server-info 需自行获取——clientIsLAN 决定整传/分片
+  if (props.token) {
+    useServerInfo().fetchInfo()
+  }
   if (!props.token) {
     error.value = '无效的上传链接：缺少访问令牌'
   }
@@ -172,9 +177,25 @@ async function startUpload() {
     for (let i = 0; i < files.value.length; i++) {
       const item = files.value[i]
       const file = item.file
+      item.status = 'uploading'
+
+      // 内网/localhost：整文件直传（单请求）。分片在这类链路上每片几毫秒，
+      // 4.5GB 会打出数千请求/分钟，触发服务端限流（429）且毫无增益
+      if (isLAN()) {
+        const formData = new FormData()
+        formData.append('files', file)
+        const result = await uploadWhole(formData, (loaded, total) => {
+          progress.value = Math.round(((i + (total > 0 ? loaded / total : 0)) / files.value.length) * 100)
+        })
+        const r0 = result && Array.isArray(result.results) ? result.results[0] : null
+        if (r0 && r0.success === false) throw new Error(r0.error || '上传失败')
+        item.status = 'success'
+        uploadResults.value.push({ name: (r0 && r0.name) || file.name, success: true })
+        continue
+      }
+
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
       const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}-${i}`
-      item.status = 'uploading'
 
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         const start = chunkIndex * CHUNK_SIZE
@@ -233,6 +254,43 @@ function uploadChunk(formData, onProgress) {
         resolve({ success: true })
       } else {
         reject(new Error(`HTTP ${xhr.status}`))
+      }
+    })
+
+    xhr.addEventListener('error', () => reject(new Error('网络错误')))
+    xhr.addEventListener('abort', () => reject(new Error('上传取消')))
+    xhr.send(formData)
+  })
+}
+
+// 内网整文件直传：单请求直达，服务器自行处理重名（自动改名共存）
+function uploadWhole(formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE}/api/upload`, true)
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(e.loaded, e.total)
+      }
+    })
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText))
+        } catch {
+          reject(new Error('解析响应失败'))
+        }
+      } else {
+        let msg = `HTTP ${xhr.status}`
+        try {
+          const err = JSON.parse(xhr.responseText)
+          if (err.error) msg = err.error
+        } catch {
+          // 保留默认状态消息
+        }
+        reject(new Error(msg))
       }
     })
 

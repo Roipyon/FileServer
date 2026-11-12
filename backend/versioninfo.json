@@ -2,13 +2,13 @@
   "FixedFileInfo": {
     "FileVersion": {
       "Major": 2,
-      "Minor": 2,
+      "Minor": 3,
       "Patch": 0,
       "Build": 0
     },
     "ProductVersion": {
       "Major": 2,
-      "Minor": 2,
+      "Minor": 3,
       "Patch": 0,
       "Build": 0
     },
@@ -22,14 +22,14 @@
     "Comments": "",
     "CompanyName": "Roipyon",
     "FileDescription": "FileServer - 局域网文件传输与剪贴板同步",
-    "FileVersion": "2.2.0",
+    "FileVersion": "2.3.0",
     "InternalName": "FileServer",
     "LegalCopyright": "Copyright © 2026 Roipyon",
     "LegalTrademarks": "",
     "OriginalFilename": "FileServer-win.exe",
     "PrivateBuild": "",
     "ProductName": "FileServer",
-    "ProductVersion": "2.2.0",
+    "ProductVersion": "2.3.0",
     "SpecialBuild": ""
   },
   "VarFileInfo": {
