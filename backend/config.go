@@ -18,6 +18,8 @@ type Config struct {
 	RateLimit      int    `json:"rateLimit"`
 	RateLimitWindow int64 `json:"rateLimitWindow"`
 	MaxUploadSize  int64  `json:"maxUploadSize"`
+	// 桌面端启动后自动打开浏览器；旧配置缺省按 true 兼容（loadConfig 往默认值上覆盖）
+	OpenBrowser bool `json:"openBrowser"`
 
 	isDocker bool
 }
@@ -31,6 +33,7 @@ var config = Config{
 	RateLimit:      5000,
 	RateLimitWindow: 60000,
 	MaxUploadSize:  10 * 1024 * 1024 * 1024,
+	OpenBrowser:    true,
 }
 
 // BASE_DIR — 可写数据锚点：FILESERVER_HOME 环境变量 > exe 所在目录（Go 版无开发态/打包态之分）

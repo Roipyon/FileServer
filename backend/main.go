@@ -141,7 +141,7 @@ func printAccessInfo(port int64) {
 }
 
 func openBrowserIfConfigured(port int64) {
-	if os.Getenv("NO_OPEN") != "" {
+	if os.Getenv("NO_OPEN") != "" || !getConfig().OpenBrowser {
 		return
 	}
 	url := fmt.Sprintf("http://localhost:%d", port)
