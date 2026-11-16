@@ -23,6 +23,7 @@
     "@codemirror/view": "^6.43.1",
     "marked": "^18.0.5",
     "pdfjs-dist": "^6.0.227",
+    "qrcode": "^1.5.4",
     "vue": "^3.4.0",
     "vue-router": "^4.6.4"
   },
