@@ -1,0 +1,168 @@
+name: Release
+
+# tag push（v*）→ 全量构建并发布 GitHub Release（正文取根目录 release-notes.md）
+# 手动触发 → 默认 dry-run：只构建产物供核对，不发布
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run：只构建产物供核对，不发布 Release'
+        type: boolean
+        default: true
+      version:
+        description: 'Dry-run 版本号（如 v2.4.0-dryrun）'
+        type: string
+        default: 'v0.0.0-dryrun'
+
+permissions:
+  contents: write
+
+env:
+  # tag push 取 tag 名；手动触发取输入版本
+  REF: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+
+jobs:
+  server:
+    name: Web + 五平台服务端
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # dist 与 backend/dist 均被 gitignore：必须先建前端再供 go:embed 编译
+      - name: 前端构建
+        working-directory: frontend
+        run: |
+          npm install --no-fund --no-audit
+          npm run build
+
+      - name: 同步 dist 到内嵌目录
+        run: |
+          rm -rf backend/dist
+          cp -r dist backend/dist
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      # 配方固化：-trimpath -ldflags "-s -w" + 版本注入，版本号取 tag（去 v 前缀）
+      - name: 交叉编译五平台
+        working-directory: backend
+        run: |
+          APP_VERSION="${REF#v}"
+          build() {
+            CGO_ENABLED=0 GOOS="$1" GOARCH="$2" \
+              go build -trimpath -ldflags "-s -w -X main.appVersion=${APP_VERSION}" \
+              -o "../release_ci/$3" .
+          }
+          build windows amd64 FileServer-win.exe
+          build linux amd64 FileServer-linux-x86_64
+          build linux arm64 FileServer-linux-arm64
+          build darwin amd64 FileServer-mac-x86_64
+          build darwin arm64 FileServer-mac-arm64
+
+      - name: 打包（tar.gz 固化 0755 可执行权限）
+        run: |
+          V="${REF#v}"
+          cd release_ci
+          zip -q "FileServer_${V}_Windows_x86_64.zip" FileServer-win.exe
+          (cd ../dist && zip -qr "../release_ci/FileServer_${V}_Web.zip" .)
+          for p in Linux_x86_64:linux-x86_64 Linux_arm64:linux-arm64 macOS_x86_64:mac-x86_64 macOS_arm64:mac-arm64; do
+            tar -czf "FileServer_${V}_${p%%:*}.tar.gz" --mode=0755 "FileServer-${p##*:}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-web
+          path: release_ci/*
+
+  android:
+    name: 安卓 arm64 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      # jniLibs 被 gitignore，.so 需现编；同样依赖内嵌 dist
+      - name: 前端构建
+        working-directory: frontend
+        run: |
+          npm install --no-fund --no-audit
+          npm run build
+
+      - name: 同步 dist 到内嵌目录
+        run: |
+          rm -rf backend/dist
+          cp -r dist backend/dist
+
+      - name: 交叉编译 arm64 jniLibs
+        working-directory: backend
+        run: |
+          mkdir -p ../android/app/src/main/jniLibs/arm64-v8a
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w -X main.appVersion=${REF#v}" \
+            -o ../android/app/src/main/jniLibs/arm64-v8a/libfileserver.so .
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: gradle assembleRelease
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      # splits 全量三出（arm64/x86_64/universal），发布只取 arm64
+      - name: 取 arm64 APK
+        run: |
+          V="${REF#v}"
+          mkdir -p release_ci
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk \
+            "release_ci/FileServer_${V}_Android.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: release_ci/*
+
+  release:
+    name: 发布 GitHub Release
+    runs-on: ubuntu-latest
+    needs: [server, android]
+    # tag push 必发；手动触发仅在取消 dry-run 时发布
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist_all
+          merge-multiple: true
+
+      - name: 生成 checksums.txt（hash *name，与本地格式一致）
+        working-directory: dist_all
+        run: |
+          # 先写上级目录再移回，避免把自身算进校验
+          sha256sum --binary * > ../checksums.tmp
+          mv ../checksums.tmp checksums.txt
+          cat checksums.txt
+
+      - name: 创建 Release 并上传资产
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            dist_all/*

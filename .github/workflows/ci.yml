@@ -1,0 +1,48 @@
+name: CI
+
+# push 到 main 的轻量门禁：编译验证 + vet + 类型检查 + 前端构建门禁
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: go vet / 三平台编译 / vue-tsc / vite build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # dist 与 backend/dist 均被 gitignore：先建前端再供 go:embed 编译
+      - name: 前端构建（check-imports 门禁 + vite build）
+        working-directory: frontend
+        run: |
+          npm install --no-fund --no-audit
+          npx vue-tsc --noEmit
+          npm run build
+
+      - name: 同步 dist 到内嵌目录
+        run: |
+          rm -rf backend/dist
+          cp -r dist backend/dist
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: 三平台编译验证
+        working-directory: backend
+        run: |
+          for t in "linux amd64" "windows amd64" "darwin amd64"; do
+            set -- $t
+            CGO_ENABLED=0 GOOS="$1" GOARCH="$2" \
+              go build -trimpath -ldflags "-s -w" -o /dev/null . && echo "OK $1/$2"
+          done
