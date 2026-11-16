@@ -2,6 +2,8 @@
 // 背景：vue-tsc 对纯 JS 的 <script setup> 不做未定义名检查，rollup 又把未解析
 // 标识符静默当作全局变量打包，曾导致 ReferenceError 只在运行时暴露（手机端）。
 // 规则：源码中出现「已知本地导出符号」的调用，而当前文件既未导入也未声明 → 报错。
+// 另一道门：import 的裸包名必须在 package.json 声明（曾因 qrcode 未声明，本地残留
+// 依赖掩盖问题，CI 全新安装即炸）。
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
@@ -41,6 +43,21 @@ for (const f of files) {
   exportsByModule.set(f, names)
 }
 const allExports = new Set([...exportsByModule.values()].flatMap((s) => [...s]))
+
+// —— 已声明依赖（package.json dependencies + devDependencies）——
+const pkgJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const declared = new Set([
+  ...Object.keys(pkgJson.dependencies ?? {}),
+  ...Object.keys(pkgJson.devDependencies ?? {}),
+])
+
+// 裸包名归一：'@a/b/c' → '@a/b'；'pkg/x' → 'pkg'；相对路径与非包协议返回 null
+function barePkg(spec) {
+  if (/^(?:https?:|node:|data:|blob:|file:)/.test(spec)) return null
+  if (spec.startsWith('.') || spec.startsWith('/')) return null
+  const parts = spec.split('/')
+  return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+}
 
 // —— 浏览器 / JS / Vue 全局白名单 ——
 const GLOBALS = new Set(
@@ -96,6 +113,16 @@ for (const f of files) {
     const text = lines[line - 1]?.trim() ?? ''
     console.error(`✗ ${rel(f)}:${line}  调用了本地导出 «${id}» 但未导入/未声明`)
     console.error(`    ${text.slice(0, 100)}`)
+    errors++
+  }
+
+  // 依赖声明检查：import 的裸包名必须在 package.json 声明
+  for (const m of code.matchAll(/\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)) {
+    const pkg = barePkg(m[1])
+    if (!pkg || declared.has(pkg)) continue
+    const line = code.slice(0, m.index).split('\n').length
+    console.error(`✗ ${rel(f)}:${line}  import «${m[1]}» 未在 package.json 声明依赖`)
+    console.error(`    ${lines[line - 1]?.trim().slice(0, 100)}`)
     errors++
   }
 }

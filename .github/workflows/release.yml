@@ -33,12 +33,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       # dist 与 backend/dist 均被 gitignore：必须先建前端再供 go:embed 编译
       - name: 前端构建
         working-directory: frontend
         run: |
-          npm install --no-fund --no-audit
+          npm ci --no-fund --no-audit
           npm run build
 
       - name: 同步 dist 到内嵌目录
@@ -95,7 +97,7 @@ jobs:
       - name: 前端构建
         working-directory: frontend
         run: |
-          npm install --no-fund --no-audit
+          npm ci --no-fund --no-audit
           npm run build
 
       - name: 同步 dist 到内嵌目录
