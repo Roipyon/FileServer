@@ -180,6 +180,39 @@ export function useUpload() {
   }
 
   /**
+   * 单文件冲突处理（上传中途追加的文件走这里）：探测服务端同名 → 弹窗覆盖/保留两个/跳过。
+   * 探测失败按"保留两个"继续，与批量预检的容错口径一致。
+   */
+  async function checkSingleConflict(item: UploadItem): Promise<void> {
+    let existingNames: Set<string>
+    try {
+      const files = await fetchFiles()
+      existingNames = new Set(files.map(f => f.name))
+    } catch {
+      return
+    }
+    if (!existingNames.has(item.name)) return
+
+    const result: ConfirmResult = await confirm(`文件 "${item.name}" 已存在，如何处理？`, {
+      title: '文件冲突',
+      confirmText: '覆盖',
+      thirdText: '保留两个',
+      cancelText: '取消',
+      variant: 'warning'
+    })
+
+    let action: ConfirmAction | boolean
+    if (result && typeof result === 'object') {
+      action = result.action
+    } else {
+      action = result
+    }
+    applyConflictAction(item, {
+      action: action === 'confirm' ? 'overwrite' : action === 'third' ? 'rename' : 'skip'
+    })
+  }
+
+  /**
    * 重试单个失败的上传项
    */
   async function retryItem(item: UploadItem): Promise<void> {
@@ -251,14 +284,22 @@ export function useUpload() {
   }
 
   /**
-   * 并发池：以固定并发数依次消费任务队列
+   * 活队列并发池：worker 持续从上传队列拉 waiting 项，直到清空。
+   * 上传中途追加的文件由同一池接住（并行不断档，不再另开管线）。
+   * worker 必须在首个 await 前同步把 item 标记为非 waiting，防止并发双取。
    */
-  async function runPool<T>(items: T[], worker: (item: T) => Promise<void>, concurrency: number): Promise<void> {
-    let index = 0
-    const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (index < items.length) {
-        const current = items[index++]
-        await worker(current)
+  async function runLivePool(worker: (item: UploadItem) => Promise<void>, concurrency: number): Promise<void> {
+    const taken = new Set<number>() // 已被 worker 认领的 uid，防止 await 间隙被并发双取
+    const runners = Array.from({ length: Math.max(1, concurrency) }, async () => {
+      for (;;) {
+        const item = uploadFiles.value.find(f => f.status === 'waiting' && !taken.has(f.uid))
+        if (!item) return
+        taken.add(item.uid)
+        try {
+          await worker(item)
+        } finally {
+          taken.delete(item.uid)
+        }
       }
     })
     await Promise.all(runners)
@@ -267,7 +308,7 @@ export function useUpload() {
   /**
    * 并发进度汇总器：按 item 聚合已上传字节，统一驱动 速度/ETA/总进度
    */
-  function createProgressAggregator(totalBytes: number): (item: UploadItem, loaded: number, label?: string) => void {
+  function createProgressAggregator(totalBytes: () => number): (item: UploadItem, loaded: number, label?: string) => void {
     const speedHistory: number[] = []
     const loadedMap = new Map<UploadItem, number>() // item -> 已上传字节
     let lastCumulative = 0
@@ -279,17 +320,18 @@ export function useUpload() {
       const now = Date.now()
       const deltaTime = (now - lastTime) / 1000
       const deltaLoaded = cumulative - lastCumulative
+      const total = totalBytes()
 
       if (deltaTime > 0.05 && deltaLoaded >= 0) {
         const instSpeed = calcInstantSpeed(speedHistory, deltaLoaded, deltaTime)
         rawSpeed.value = instSpeed
         uploadSpeed.value = Math.round((instSpeed / BYTES_PER_MB) * 100) / 100
-        uploadEta.value = formatEta(instSpeed, totalBytes - cumulative)
+        uploadEta.value = formatEta(instSpeed, total - cumulative)
         lastCumulative = cumulative
         lastTime = now
       }
 
-      const overall = Math.min(100, Math.round((cumulative / totalBytes) * 100))
+      const overall = Math.min(100, Math.round((cumulative / total) * 100))
       uploadProgress.value = overall
       uploadStatus.value = `上传中 ${overall}% (${label || item.name})`
       if (rawSpeed.value > 0) {
@@ -313,6 +355,12 @@ export function useUpload() {
   }
 
   async function startUpload(opts?: { autoClose?: boolean }): Promise<boolean> {
+    if (uploading.value) {
+      // 重入（如上传中又拖入一批）：文件已由 addFiles 入队，现行管线会自动接住，
+      // 不再另开管线；仅补充收场语义
+      if (opts?.autoClose === true) autoCloseOnFinish = true
+      return true
+    }
     autoCloseOnFinish = opts?.autoClose === true
     if (uploadFiles.value.length === 0) return false
     uploading.value = true
@@ -339,24 +387,33 @@ export function useUpload() {
     }
 
     // 内网：直接整文件上传；外网：分片上传（避免大文件超时）
+    // initialIds：开跑时已在批次内的文件（冲突已由 resolveConflicts 批量处理）；
+    // 之后追加进队列的文件由 runLivePool 接住，走单文件冲突确认
+    const initialIds = new Set(activeFiles.map(f => f.uid))
     if (isLAN()) {
-      return await uploadDirect(activeFiles)
+      return await uploadDirect(activeFiles, initialIds)
     } else {
-      return await uploadChunked(activeFiles)
+      return await uploadChunked(activeFiles, initialIds)
     }
   }
 
   /**
    * 内网上传：直接整文件 POST /api/upload
-   * 速度更快，无分片/合并开销；多文件并发上传
+   * 速度更快，无分片/合并开销；活队列并发上传（中途追加的文件自动并入）
    */
-  async function uploadDirect(activeFiles: UploadItem[]): Promise<boolean> {
-    const totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
-    const tick = createProgressAggregator(totalBytes)
+  async function uploadDirect(activeFiles: UploadItem[], initialIds: Set<number>): Promise<boolean> {
+    let totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
+    const tick = createProgressAggregator(() => totalBytes)
     let hasError = false
 
     try {
-      await runPool(activeFiles, async (item) => {
+      await runLivePool(async (item) => {
+        if (!initialIds.has(item.uid)) {
+          // 上传中途追加的文件：补单文件冲突确认，并动态计入总进度
+          totalBytes += item.file.size
+          await checkSingleConflict(item)
+        }
+        if (item.status !== 'waiting') return // 用户选了跳过
         item.status = 'uploading'
 
         const formData = new FormData()
@@ -404,19 +461,24 @@ export function useUpload() {
    * 分片大小按前一个文件的实测耗时自适应（慢链路加倍摊薄往返延迟），
    * 单片失败自动重试，链路快时逐步加 worker 提高并发。
    */
-  async function uploadChunked(activeFiles: UploadItem[]): Promise<boolean> {
-    const totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
-    const tick = createProgressAggregator(totalBytes)
+  async function uploadChunked(activeFiles: UploadItem[], initialIds: Set<number>): Promise<boolean> {
+    let totalBytes = activeFiles.reduce((s, f) => s + f.file.size, 0)
+    const tick = createProgressAggregator(() => totalBytes)
     let hasError = false
     let batchSize = CHUNK_SIZE_MIN  // 跨文件自适应：上一文件慢则本文件加大分片
 
     try {
-      await runPool(activeFiles, async (item) => {
+      await runLivePool(async (item) => {
+        if (!initialIds.has(item.uid)) {
+          totalBytes += item.file.size
+          await checkSingleConflict(item)
+        }
+        if (item.status !== 'waiting') return // 用户选了跳过
+        item.status = 'uploading'
         const file = item.file
         const CHUNK = batchSize
         const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK))
         const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}-${Math.random().toString(36).slice(2)}`
-        item.status = 'uploading'
 
         const chunkLoaded = new Array<number>(totalChunks).fill(0)
         const chunkIndexes = Array.from({ length: totalChunks }, (_, i) => i)
