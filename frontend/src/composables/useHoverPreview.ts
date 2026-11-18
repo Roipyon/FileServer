@@ -217,8 +217,18 @@ export function useHoverPreview() {
     const ua = navigator as Navigator & { userAgentData?: { mobile?: boolean } }
     const isMobile = ua.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
-    // 移动设备触发点击预览
+    // 桌面端点击不弹悬停预览（悬停由 mouseenter/mousemove 驱动）
     if (event.type === 'click' && !isMobile) return
+
+    // 触摸设备的兼容鼠标事件（长按/点按后浏览器补发的 mouseenter/mousemove）
+    // 不触发悬停预览；触摸设备上悬停预览只由「点击」驱动
+    if (isMobile && (event.type === 'mouseenter' || event.type === 'mousemove')) return
+
+    // 移动端点击切换：同一文件预览已显示时，再次点击则关闭
+    if (isMobile && event.type === 'click' && currentFile === file && previewState.visible) {
+      resetPreviewState()
+      return
+    }
 
     // 不支持预览的类型不显示
     if (getPreviewType(file.name) === 'other') return
