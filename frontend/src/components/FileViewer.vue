@@ -263,9 +263,18 @@ const archiveFallback = ref(false)
 let cmView = null
 let cmModules = null
 
-// PDF.js instance
+// PDF.js instance（懒加载：Range 按需取流 + 只渲染可视区附近页）
 let pdfDoc = null
-let pdfCurrentPage = 1
+let pdfLoadingTask = null
+let pdfRenderObserver = null   // 进入渲染沿（rootMargin 内）→ 排队渲染
+let pdfKeepObserver = null     // 离开保留沿 → 销毁画布释放内存
+let pdfLoadSeq = 0             // 加载代序号：切换/关闭后使旧加载流程的后续步骤失效
+const PDF_SCALE = 1.3
+const PDF_RENDER_MARGIN = 600  // 距可视区多近开始渲染(px)
+const PDF_KEEP_MARGIN = 2500   // 超出多远销毁画布(px)
+const PDF_RENDER_CONCURRENCY = 2
+let pdfActiveRenders = 0
+const pdfPendingPages = new Set()
 
 // --- Computed ---
 const fileName = computed(() => viewerState.file?.name || '')
@@ -328,7 +337,7 @@ watch(loadTrigger, async (newVal, oldVal) => {
   if (nameChanged) {
     cmContentCache = ''
     resetZoom()
-    pdfDoc = null
+    destroyPdf()
     imageIndex.value = 0
     archiveEntries.value = []
     archiveTotal.value = 0
@@ -363,6 +372,11 @@ watch(loadTrigger, async (newVal, oldVal) => {
     loading.value = false
   }
 }, { flush: 'post' })
+
+// 关闭查看器即销毁 PDF 会话（终止 worker、断开观察器），覆盖所有关闭路径
+watch(() => viewerState.visible, (visible) => {
+  if (!visible) destroyPdf()
+})
 
 // --- Text Loading (CodeMirror) ---
 async function ensureCodeMirror() {
@@ -494,62 +508,179 @@ async function loadText(cachedContent) {
   }
 }
 
-// --- PDF Loading (also used for Office) ---
+// --- PDF Loading (lazy: Range 按需取流，只渲染可视区附近页) ---
 async function loadPdf() {
+  const token = ++pdfLoadSeq
   await nextTick()
 
-  // Check if the response is actually a PDF
+  // 非 PDF 内容（office 转换未就绪等）：HEAD 探测内容类型，不再整本下载后才发现
   try {
-    const resp = await fetch(rawUrl.value)
-    const contentType = resp.headers.get('content-type') || ''
-
-    if (!contentType.includes('application/pdf')) {
-      // Not a PDF — failed conversion, show fallback
+    const head = await fetch(rawUrl.value, { method: 'HEAD' })
+    if (!head.ok) throw new Error(`HTTP ${head.status}`)
+    if (!(head.headers.get('content-type') || '').includes('application/pdf')) {
       loading.value = false
       showOfficeFallback.value = true
       return
     }
-
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-
-    // Clear container
-    if (cmContainer.value) cmContainer.value.innerHTML = ''
-    if (cmView) { cmView.destroy(); cmView = null }
-
-    const pdfjsLib = await import('pdfjs-dist')
-    // worker 直接随 pdfjs-dist 包打包，与 API 永远同版本（此前手拷的静态副本会随依赖升级而错位）
-    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default
-
-    const arrayBuffer = await resp.arrayBuffer()
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
-    pdfDoc = await loadingTask.promise
-
-    // Render all pages
-    if (!cmContainer.value) return
-    const container = cmContainer.value
-    container.innerHTML = ''
-
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i)
-      const viewport = page.getViewport({ scale: 1.3 })
-      const canvas = document.createElement('canvas')
-      canvas.className = 'viewer-pdf-page'
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      const ctx = canvas.getContext('2d')
-      await page.render({ canvasContext: ctx, viewport }).promise
-      container.appendChild(canvas)
-    }
-
-    loading.value = false
   } catch (err) {
-    toast.error('加载 PDF 失败:', err)
+    if (token !== pdfLoadSeq) return
     loading.value = false
     if (cmContainer.value) {
       cmContainer.value.innerHTML = `<p class="viewer-error">PDF 加载失败: ${err.message}</p>`
     }
+    return
   }
+  if (token !== pdfLoadSeq) return
+
+  // Clear container
+  if (cmContainer.value) cmContainer.value.innerHTML = ''
+  if (cmView) { cmView.destroy(); cmView = null }
+
+  const pdfjsLib = await import('pdfjs-dist')
+  // worker 直接随 pdfjs-dist 包打包，与 API 永远同版本（此前手拷的静态副本会随依赖升级而错位）
+  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default
+  if (token !== pdfLoadSeq) return
+
+  try {
+    // disableAutoFetch + disableStream：不整本下载，渲染哪页就按 Range 取哪页的字节
+    pdfLoadingTask = pdfjsLib.getDocument({
+      url: rawUrl.value,
+      disableAutoFetch: true,
+      disableStream: true,
+    })
+    pdfDoc = await pdfLoadingTask.promise
+    if (token !== pdfLoadSeq) return
+
+    // 先解析每页尺寸搭占位（仅元数据，不渲染），可视区内的占位再画成 canvas
+    const container = cmContainer.value
+    if (!container) return
+    container.innerHTML = ''
+    const dims = await collectPdfPageDims(pdfDoc, pdfDoc.numPages)
+    if (token !== pdfLoadSeq || !cmContainer.value) return
+
+    const frag = document.createDocumentFragment()
+    dims.forEach((d, idx) => {
+      const wrap = document.createElement('div')
+      wrap.className = 'viewer-pdf-page-wrap'
+      wrap.dataset.pdfPage = String(idx + 1)
+      wrap.style.width = d.w + 'px'
+      wrap.style.height = d.h + 'px'
+      frag.appendChild(wrap)
+    })
+    container.appendChild(frag)
+    attachPdfObservers(container)
+    loading.value = false
+  } catch (err) {
+    if (token !== pdfLoadSeq) return
+    loading.value = false
+    toast.error('加载 PDF 失败:', err)
+    if (cmContainer.value) {
+      cmContainer.value.innerHTML = `<p class="viewer-error">PDF 加载失败: ${err.message}</p>`
+    }
+  }
+}
+
+// 逐批并行解析所有页的尺寸（仅元数据，不渲染）
+async function collectPdfPageDims(doc, numPages) {
+  const dims = []
+  const BATCH = 20
+  for (let start = 1; start <= numPages; start += BATCH) {
+    const end = Math.min(start + BATCH, numPages + 1)
+    const viewports = await Promise.all(
+      Array.from({ length: end - start }, (_, k) => doc.getPage(start + k))
+        .map(p => p.then(pg => pg.getViewport({ scale: PDF_SCALE })))
+    )
+    for (const v of viewports) dims.push({ w: Math.ceil(v.width), h: Math.ceil(v.height) })
+    if (doc !== pdfDoc) return []   // 期间文件被切换/查看器已关闭
+  }
+  return dims
+}
+
+// 可视区渲染：进入渲染沿排队画，离开保留沿销毁画布（占位尺寸不变，滚动条不跳）
+function attachPdfObservers(container) {
+  pdfRenderObserver = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) schedulePdfRender(Number(e.target.dataset.pdfPage))
+    }
+  }, { root: container, rootMargin: `${PDF_RENDER_MARGIN}px 0px` })
+  pdfKeepObserver = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) releasePdfPage(Number(e.target.dataset.pdfPage))
+    }
+  }, { root: container, rootMargin: `${PDF_KEEP_MARGIN}px 0px` })
+  container.querySelectorAll('.viewer-pdf-page-wrap').forEach(w => {
+    pdfRenderObserver.observe(w)
+    pdfKeepObserver.observe(w)
+  })
+}
+
+function schedulePdfRender(num) {
+  if (!pdfDoc || pdfPendingPages.has(num)) return
+  pdfPendingPages.add(num)
+  pumpPdfRenders()
+}
+
+async function pumpPdfRenders() {
+  while (pdfPendingPages.size > 0 && pdfActiveRenders < PDF_RENDER_CONCURRENCY && pdfDoc) {
+    const num = pdfPendingPages.values().next().value
+    pdfPendingPages.delete(num)
+    pdfActiveRenders++
+    try {
+      await renderPdfPage(num)
+    } catch {
+      // 页面数据缺失或文档已销毁：跳过，观察器会在回到可视区时重新调度
+    }
+    pdfActiveRenders--
+  }
+}
+
+async function renderPdfPage(num) {
+  const doc = pdfDoc
+  if (!doc) return
+  const wrap = cmContainer.value?.querySelector(`[data-pdf-page="${num}"]`)
+  if (!wrap || wrap.querySelector('canvas')) return
+  const page = await doc.getPage(num)
+  // await 期间可能已切换文件/关闭查看器/画布被释放
+  if (doc !== pdfDoc || !cmContainer.value?.contains(wrap)) return
+  if (wrap.querySelector('canvas')) return
+  const viewport = page.getViewport({ scale: PDF_SCALE })
+  const canvas = document.createElement('canvas')
+  canvas.className = 'viewer-pdf-page'
+  canvas.width = Math.ceil(viewport.width)
+  canvas.height = Math.ceil(viewport.height)
+  const ctx = canvas.getContext('2d')
+  await page.render({ canvasContext: ctx, viewport }).promise
+  if (doc !== pdfDoc || !cmContainer.value?.contains(wrap)) {
+    canvas.width = 0
+    canvas.height = 0
+    return
+  }
+  wrap.appendChild(canvas)
+}
+
+function releasePdfPage(num) {
+  pdfPendingPages.delete(num)
+  const wrap = cmContainer.value?.querySelector(`[data-pdf-page="${num}"]`)
+  if (!wrap) return
+  wrap.querySelectorAll('canvas').forEach(c => {
+    c.width = 0
+    c.height = 0
+    c.remove()
+  })
+}
+
+// 销毁 PDF 会话：断开观察器、终止 worker、清空待渲染队列
+function destroyPdf() {
+  pdfLoadSeq++
+  if (pdfRenderObserver) { pdfRenderObserver.disconnect(); pdfRenderObserver = null }
+  if (pdfKeepObserver) { pdfKeepObserver.disconnect(); pdfKeepObserver = null }
+  pdfPendingPages.clear()
+  if (pdfLoadingTask) {
+    try { pdfLoadingTask.destroy() } catch { /* 已销毁 */ }
+    pdfLoadingTask = null
+  }
+  pdfDoc = null
 }
 
 // --- Archive Loading (ZIP / RAR / 7z / Tar) ---
@@ -642,6 +773,7 @@ onBeforeUnmount(() => {
     cmView.destroy()
     cmView = null
   }
+  destroyPdf()
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
@@ -1065,15 +1197,21 @@ onBeforeUnmount(() => {
 }
 
 /* --- PDF Viewer -------------------------------------------- */
-.viewer-pdf-page {
-  display: block;
+/* 占位页：懒加载下常驻（尺寸=渲染后页面尺寸），canvas 按可视区进出挂载/销毁 */
+.viewer-pdf-page-wrap {
   margin: 0 auto 16px;
+  background: #fff;
   box-shadow: var(--shadow-md);
   border-radius: 2px;
+  overflow: hidden;
 }
 
-.viewer-pdf-page:last-child {
+.viewer-pdf-page-wrap:last-child {
   margin-bottom: 0;
+}
+
+.viewer-pdf-page {
+  display: block;
 }
 
 /* --- Office Fallback --------------------------------------- */
