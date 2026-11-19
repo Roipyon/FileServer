@@ -517,16 +517,9 @@ async function loadPdf() {
     if (cmView) { cmView.destroy(); cmView = null }
 
     const pdfjsLib = await import('pdfjs-dist')
-    // 优先本地 worker（内网/离线），CDN 作为备用
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-
-    // 检测本地 worker 是否可用，不可用时使用 CDN fallback
-    try {
-      const check = await fetch('/pdf.worker.min.mjs', { method: 'HEAD' })
-      if (!check.ok) throw new Error('not found')
-    } catch {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
-    }
+    // worker 直接随 pdfjs-dist 包打包，与 API 永远同版本（此前手拷的静态副本会随依赖升级而错位）
+    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default
 
     const arrayBuffer = await resp.arrayBuffer()
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
