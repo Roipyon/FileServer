@@ -154,7 +154,7 @@ class BrowserActivity : Activity() {
             toast("未获取到分享内容")
             return
         }
-        toast("正在接收 ${uris.size} 张图片…")
+        toast("正在接收 ${uris.size} 个文件…")
 
         Thread {
             try {
@@ -206,7 +206,7 @@ class BrowserActivity : Activity() {
 
                 val ok = uploadToServer(staged)
                 runOnUiThread {
-                    if (ok > 0) toast("已添加 $ok 张图片到共享目录")
+                    if (ok > 0) toast("已添加 $ok 个文件到共享目录")
                     else toast("上传失败")
                 }
             } catch (e: Exception) {

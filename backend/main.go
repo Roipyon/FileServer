@@ -17,7 +17,7 @@ import (
 )
 
 // appVersion 由构建脚本通过 -ldflags -X 注入；此处默认值需与发布版本一致
-var appVersion = "2.2.0"
+var appVersion = "2.4.0"
 
 // httpServer 由 main 赋值，自替换（方案 D）重启前用于释放监听端口
 var httpServer *http.Server
