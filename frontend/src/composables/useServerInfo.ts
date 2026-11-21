@@ -13,7 +13,6 @@ interface ServerInfoData {
   publicUrl?: string | null
   port?: number
   version?: string
-  webOverride?: boolean
   clientIsLAN?: boolean
 }
 
@@ -23,7 +22,6 @@ const state = reactive({
   publicUrl: null as string | null,
   port: 0,
   serverVersion: '',
-  webOverride: false,
   loading: false,
   error: null as string | null
 })
@@ -57,7 +55,6 @@ async function fetchInfo(forceRefresh = false): Promise<void> {
     state.publicUrl = data.publicUrl || null
     state.port = data.port || 0
     state.serverVersion = data.version || ''
-    state.webOverride = !!data.webOverride
     setClientIsLAN(typeof data.clientIsLAN === 'boolean' ? data.clientIsLAN : null)
   } catch (err) {
     toast.error(`获取服务器信息失败: ${err instanceof Error ? err.message : String(err)}`)

@@ -1,9 +1,7 @@
 import { reactive } from 'vue'
 import {
   fetchUpdateManifest,
-  applyWebUpdate,
   applyServerUpdate,
-  rollbackWebUpdate,
   waitServerRestart,
   type UpdateManifest
 } from '../api/updateApi'
@@ -13,7 +11,7 @@ import { isAndroidUA } from '../utils/helpers.js'
 const toast = useToast()
 
 const state = reactive({
-  /** 一键更新进行中的阶段：'' | 'check' | 'web' | 'server' | 'apk' | 'rollback' */
+  /** 一键更新进行中的阶段：'' | 'check' | 'server' | 'apk' */
   phase: '',
   error: '',
   /** 在线检查不可用时的提示 */
@@ -26,7 +24,7 @@ const isAndroid = isAndroidUA()
 
 /**
  * 软件更新：检查与应用分两步，中间让用户看过「更新内容」再决定。
- * 桌面 = 前端热更新 + 服务端自替换重启；安卓 = 前端热更新 + 拉起 APK 安装。
+ * 桌面 = 服务端自替换重启（前端随整包一同更新）；安卓 = 下载 APK 走系统安装器。
  */
 export function useUpdate() {
   /** 第一步·检查：结果写入 state.available（含 release notes），有更新返回 true */
@@ -59,14 +57,7 @@ export function useUpdate() {
     if (!a) return
     state.error = ''
     try {
-      // 前端热更新：桌面与安卓通用
-      if (a.web) {
-        state.phase = 'web'
-        await applyWebUpdate(a.web)
-        toast.success(`前端已更新到 v${a.web.version}`)
-      }
-
-      // 桌面服务端：自替换并等待新版上线后刷新
+      // 桌面服务端：自替换并等待新版上线后刷新（前端随整包一同更新）
       if (a.server && !isAndroid) {
         state.phase = 'server'
         toast.info(`服务端正在更新到 v${a.server.version}，等待重启…`)
@@ -84,9 +75,6 @@ export function useUpdate() {
         window.location.href = a.android.url
         return
       }
-
-      // 仅前端更新：稍候刷新加载新版
-      if (a.web) setTimeout(() => window.location.reload(), 1000)
     } catch (err) {
       state.error = err instanceof Error ? err.message : '更新失败'
     } finally {
@@ -94,21 +82,5 @@ export function useUpdate() {
     }
   }
 
-  /** 回退到内嵌前端并刷新 */
-  async function rollback(): Promise<void> {
-    if (state.phase) return
-    state.phase = 'rollback'
-    state.error = ''
-    try {
-      await rollbackWebUpdate()
-      toast.info('已恢复内嵌版本，正在刷新…')
-      setTimeout(() => window.location.reload(), 1000)
-    } catch (err) {
-      state.error = err instanceof Error ? err.message : '回退失败'
-    } finally {
-      state.phase = ''
-    }
-  }
-
-  return { state, checkUpdate, applyUpdate, rollback }
+  return { state, checkUpdate, applyUpdate }
 }

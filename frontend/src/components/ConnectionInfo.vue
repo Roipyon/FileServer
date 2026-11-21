@@ -204,9 +204,7 @@
               <div class="conn-update-card">
                 <div class="conn-update-versions">
                   <span>最新版本<b>v{{ latestVersion }}</b></span>
-                  <span>当前版本<b>v{{ state.serverVersion || '?' }}</b>
-                    <em v-if="state.webOverride" class="conn-update-badge">热更新</em>
-                  </span>
+                  <span>当前版本<b>v{{ state.serverVersion || '?' }}</b></span>
                 </div>
 
                 <div v-if="updateState.error" class="conn-update-error">
@@ -234,19 +232,11 @@
                     <i class="fas" :class="updateState.available && !updateState.phase ? 'fa-download' : 'fa-arrows-rotate'"></i>
                     {{ actionText }}
                   </button>
-                  <button
-                    v-if="state.webOverride"
-                    class="conn-update-rollback"
-                    :disabled="!!updateState.phase"
-                    @click="doRollback"
-                  >
-                    <i class="fas fa-rotate-left"></i> 恢复内嵌版本
-                  </button>
                 </div>
 
                 <p class="conn-update-hint">
                   <i class="fas fa-info-circle"></i>
-                  前端更新后刷新即生效
+                  桌面端更新后自动重启生效
                 </p>
               </div>
             </div>
@@ -286,22 +276,20 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const { state, fetchInfo, generateQR, collapse, copyUrl, resetCache } = useServerInfo()
-const { state: updateState, checkUpdate, applyUpdate, rollback } = useUpdate()
+const { state: updateState, checkUpdate, applyUpdate } = useUpdate()
 
 // 最新版本：检查到可用更新时取清单版本，未发现时与当前一致
 const latestVersion = computed(() => {
   const a = updateState.available
-  return a?.server?.version || a?.web?.version || a?.android?.version || state.serverVersion || '?'
+  return a?.server?.version || a?.android?.version || state.serverVersion || '?'
 })
 
 // 一键更新按钮文案随阶段变化
 const phaseText = computed(() => {
   const map = {
     check: '检查中…',
-    web: '更新前端…',
     server: '更新服务端…',
-    apk: '下载安装包…',
-    rollback: '回退中…'
+    apk: '下载安装包…'
   }
   return map[updateState.phase] || '检查更新'
 })
@@ -338,9 +326,6 @@ const releaseNotesSegs = computed(() => {
     .filter(Boolean)
 })
 
-async function doRollback() {
-  await rollback()
-}
 const copied = ref(false)
 let copyTimer = null
 

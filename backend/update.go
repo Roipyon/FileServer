@@ -1,8 +1,6 @@
-// 软件自更新 — 前端热更新（B）与桌面端自替换（D）的公共后端
+// 软件自更新 — 桌面端自替换（D）与安卓整包（A）的公共后端
 //
-// 分层更新模型：
-//   B  前端热更新：dist.zip → BASE_DIR/web-dist 磁盘层；serveStatic 磁盘优先、embed 兜底，
-//      按请求 stat 热生效、无需重启；设置页可一键「恢复内嵌版本」。
+// 更新模型（前端随整包一同更新，不单独热更新）：
 //   D  桌面自替换：下载新 exe → 校验 → Windows 旧改名 .old / 新就位 / 拉起新进程退出，
 //      Unix rename 覆盖 + syscall.Exec 原位重启（Go 监听 FD 默认 CLOEXEC，exec 即释放端口）。
 //   A  安卓整包：Go 层不做（W^X 禁止替换运行中的 nativeLibraryDir 二进制），
@@ -25,7 +23,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -43,16 +40,9 @@ type updateSection struct {
 }
 
 type updateManifest struct {
-	Web     *updateSection `json:"web"`
 	Server  *updateSection `json:"server"`
 	Android *updateSection `json:"android"`
 	Notes   string         `json:"notes,omitempty"` // release 说明（发版 body），供更新确认时展示
-}
-
-type updateMeta struct {
-	Version   string `json:"version"`
-	SHA256    string `json:"sha256"`
-	AppliedAt int64  `json:"appliedAt"`
 }
 
 // ==================== 端点 ====================
@@ -60,7 +50,6 @@ type updateMeta struct {
 // GET /api/update/manifest — 当前版本 + 可用更新（来源：GitHub Releases 最新发布）。
 func handleUpdateManifest(w http.ResponseWriter, r *http.Request) {
 	current := map[string]any{
-		"web":    map[string]any{"version": currentWebVersion(), "override": webDistActive()},
 		"server": map[string]any{"version": appVersion},
 	}
 	var available *updateManifest
@@ -74,54 +63,14 @@ func handleUpdateManifest(w http.ResponseWriter, r *http.Request) {
 	}
 	// 只展示比当前更新的段，避免误降级
 	if available != nil {
-		available.Web = newerOnly(available.Web, currentWebVersion())
 		available.Server = newerOnly(available.Server, appVersion)
 		available.Android = newerOnly(available.Android, appVersion)
-		if available.Web == nil && available.Server == nil && available.Android == nil {
+		if available.Server == nil && available.Android == nil {
 			available = nil
 		}
 	}
 
 	sendJSON(w, 200, map[string]any{"current": current, "available": available, "notice": notice})
-}
-
-// POST /api/update/apply/web — 方案 B：校验 → 解压暂存 → 原子换装 web-dist
-// 请求体直接携带检查结果中的所选段，载荷下载后做 sha256 强校验
-func handleApplyWebUpdate(w http.ResponseWriter, r *http.Request) {
-	sec := decodeApplySection(w, r)
-	if sec == nil {
-		return
-	}
-
-	payload, err := fetchUpdatePayload(sec)
-	if err != nil {
-		sendError(w, 400, "获取更新包失败: "+err.Error())
-		return
-	}
-	if sha256Hex(payload) != sec.SHA256 {
-		sendError(w, 400, "sha256 校验不符，更新包可能已损坏")
-		return
-	}
-	if err := stageWebDist(payload, sec); err != nil {
-		sendError(w, 500, "前端换装失败: "+err.Error())
-		return
-	}
-	invalidateFileCache()
-	sendJSON(w, 200, map[string]any{"success": true, "version": sec.Version})
-}
-
-// POST /api/update/rollback/web — 删除磁盘层，回到内嵌前端
-func handleRollbackWebUpdate(w http.ResponseWriter, r *http.Request) {
-	if !webDistActive() {
-		sendError(w, 400, "当前已是内嵌版本")
-		return
-	}
-	if err := os.RemoveAll(webDistDir()); err != nil {
-		sendError(w, 500, "回退失败: "+err.Error())
-		return
-	}
-	log.Printf("[Info] [Update] 已回退到内嵌前端 v%s", appVersion)
-	sendJSON(w, 200, map[string]any{"success": true, "version": appVersion})
 }
 
 // POST /api/update/apply/server — 方案 D：桌面端自替换 + 重启
@@ -273,109 +222,20 @@ func cleanupOldBinary() {
 	os.Remove(exe + ".new")
 }
 
-// ==================== web-dist 磁盘层 ====================
+// ==================== 历史遗留清理 ====================
 
-func webDistDir() string { return filepath.Join(BASE_DIR, "web-dist") }
-
-func webDistActive() bool {
-	_, err := os.Stat(filepath.Join(webDistDir(), "index.html"))
-	return err == nil
-}
-
-func currentWebVersion() string {
-	data, err := os.ReadFile(filepath.Join(webDistDir(), "update-meta.json"))
-	if err == nil {
-		var meta updateMeta
-		if json.Unmarshal(data, &meta) == nil && meta.Version != "" {
-			return meta.Version
-		}
+// cleanupWebDist — 方案 B（前端热更新磁盘层）已移除：启动时清掉历史版本遗留的
+// web-dist 目录，避免旧磁盘层盖住内嵌前端，形成冻结的混合版本态。
+func cleanupWebDist() {
+	dir := filepath.Join(BASE_DIR, "web-dist")
+	if _, err := os.Stat(dir); err != nil {
+		return // 从未做过热更新，无需清理
 	}
-	return appVersion
-}
-
-// stageWebDist — 解压到暂存目录（zip-slip 防护 + index.html 校验），完成后原子换装
-func stageWebDist(payload []byte, sec *updateSection) error {
-	zr, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
-	if err != nil {
-		return fmt.Errorf("不是有效的 zip 包")
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("[Warn] [Update] 遗留 web-dist 清理失败: %v", err)
+		return
 	}
-
-	staging := webDistDir() + ".staging"
-	os.RemoveAll(staging)
-	os.MkdirAll(staging, 0755)
-
-	// 兼容两种包结构：index.html 在根，或整体嵌在唯一顶层 dist/ 目录内（按 zip 条目判定）
-	prefix := ""
-	hasRootIndex, hasDistIndex := false, false
-	for _, f := range zr.File {
-		switch f.Name {
-		case "index.html":
-			hasRootIndex = true
-		case "dist/index.html":
-			hasDistIndex = true
-		}
-	}
-	if !hasRootIndex && hasDistIndex {
-		prefix = "dist/"
-	}
-
-	var total int64
-	var sawIndex bool
-	for _, f := range zr.File {
-		name := strings.TrimPrefix(f.Name, prefix)
-		if name == "" || strings.HasSuffix(name, "/") {
-			continue
-		}
-		clean := path.Clean("/" + name) // 斜杠域内收敛：剥 ../、盘符等，输出形如 /assets/x.js
-		if strings.Contains(clean, "..") {
-			os.RemoveAll(staging)
-			return fmt.Errorf("zip 条目路径非法: %s", f.Name)
-		}
-		rel := strings.TrimPrefix(clean, "/")
-		target := filepath.Join(staging, rel)
-		if rel == "index.html" {
-			sawIndex = true
-		}
-		os.MkdirAll(filepath.Dir(target), 0755)
-		src, err := f.Open()
-		if err != nil {
-			os.RemoveAll(staging)
-			return err
-		}
-		dst, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-		if err != nil {
-			src.Close()
-			os.RemoveAll(staging)
-			return err
-		}
-		n, err := io.Copy(dst, io.LimitReader(src, updateMaxPayload-total+1))
-		dst.Close()
-		src.Close()
-		if err != nil {
-			os.RemoveAll(staging)
-			return err
-		}
-		total += n
-		if total > updateMaxPayload {
-			os.RemoveAll(staging)
-			return fmt.Errorf("解包超出大小上限")
-		}
-	}
-	if !sawIndex {
-		os.RemoveAll(staging)
-		return fmt.Errorf("包内缺少 index.html（应打包 dist 内容且 index.html 在根）")
-	}
-
-	meta, _ := json.MarshalIndent(updateMeta{Version: sec.Version, SHA256: sec.SHA256, AppliedAt: time.Now().Unix()}, "", "  ")
-	os.WriteFile(filepath.Join(staging, "update-meta.json"), meta, 0644)
-
-	os.RemoveAll(webDistDir())
-	if err := os.Rename(staging, webDistDir()); err != nil {
-		os.RemoveAll(staging)
-		return err
-	}
-	log.Printf("[Info] [Update] 前端热更新完成 → v%s（磁盘层，可回退）", sec.Version)
-	return nil
+	log.Printf("[Info] [Update] 已清理遗留的 web-dist 磁盘层（前端热更新已移除）")
 }
 
 // ==================== 清单与载荷 ====================
@@ -530,12 +390,11 @@ func fetchGitHubManifest() (*updateManifest, error) {
 	}
 
 	m := &updateManifest{
-		Web:     section(fmt.Sprintf("FileServer_%s_Web.zip", ver)),
-		Android: section(fmt.Sprintf("FileServer_%s_Android.apk", ver)),
 		Server:  section(platformServerAssetName(ver)),
+		Android: section(fmt.Sprintf("FileServer_%s_Android.apk", ver)),
 		Notes:   truncateNotes(rel.Body),
 	}
-	if m.Web == nil && m.Server == nil && m.Android == nil {
+	if m.Server == nil && m.Android == nil {
 		return nil, fmt.Errorf("release 无可识别资产")
 	}
 	return m, nil

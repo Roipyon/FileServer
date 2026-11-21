@@ -1,5 +1,5 @@
 /**
- * 软件自更新 API（方案 B/A/D 公共端点）
+ * 软件自更新 API（桌面整包自替换 D / 安卓整包 A 公共端点）
  *
  * 更新源：GitHub Releases 最新发布，服务端按资产命名约定映射出各段供比对。
  */
@@ -11,7 +11,6 @@ export interface UpdateSection {
 }
 
 export interface UpdateManifest {
-  web?: UpdateSection
   server?: UpdateSection
   android?: UpdateSection
   /** release 说明（发版 body，markdown 纯文本子集），有可用更新时随清单下发 */
@@ -24,12 +23,10 @@ export interface ServerVersions {
   port: number
   uptime: number
   version: string
-  webOverride: boolean
 }
 
 interface UpdateManifestResponse {
   current: {
-    web: { version: string; override: boolean }
     server: { version: string }
   }
   available: UpdateManifest | null
@@ -53,17 +50,6 @@ export async function fetchUpdateManifest(): Promise<UpdateManifestResponse> {
   return res.json()
 }
 
-/** 应用前端热更新（方案 B），成功后刷新页面即生效；段信息来自检查结果 */
-export async function applyWebUpdate(sec: UpdateSection): Promise<{ success: boolean; version: string }> {
-  const res = await fetch(`${window.location.origin}/api/update/apply/web`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sec)
-  })
-  if (!res.ok) throw await readError(res, '前端更新失败')
-  return res.json()
-}
-
 /** 应用桌面端整包更新（方案 D）：服务端自替换并重启，期间会短暂断线 */
 export async function applyServerUpdate(sec: UpdateSection): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${window.location.origin}/api/update/apply/server`, {
@@ -72,13 +58,6 @@ export async function applyServerUpdate(sec: UpdateSection): Promise<{ success: 
     body: JSON.stringify(sec)
   })
   if (!res.ok) throw await readError(res, '服务端更新失败')
-  return res.json()
-}
-
-/** 删除磁盘前端层，回到编译期内嵌版本 */
-export async function rollbackWebUpdate(): Promise<{ success: boolean; version: string }> {
-  const res = await fetch(`${window.location.origin}/api/update/rollback/web`, { method: 'POST' })
-  if (!res.ok) throw await readError(res, '回退失败')
   return res.json()
 }
 

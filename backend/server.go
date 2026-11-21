@@ -218,10 +218,9 @@ func serveServerInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, map[string]any{
 		"urls": urls, "publicUrl": publicUrl, "port": port,
-		"uptime":       time.Since(startedAt).Seconds(),
-		"version":      appVersion,
-		"webOverride":  webDistActive(),
-		"clientIsLAN":  clientIsLAN(r),
+		"uptime":      time.Since(startedAt).Seconds(),
+		"version":     appVersion,
+		"clientIsLAN": clientIsLAN(r),
 	})
 }
 
@@ -287,16 +286,6 @@ func serveStatic(w http.ResponseWriter, r *http.Request, pathname string) {
 		name = "dist" + path.Clean("/"+pathname)
 	}
 	rel := strings.TrimPrefix(name, "dist/")
-
-	// 方案 B 磁盘热更新层：BASE_DIR/web-dist 存在同名文件则优先。
-	// 按请求 stat，换装即生效、无需重启；Clean 已把 .. 收敛到根，但磁盘是真实文件系统，
-	// 这里额外拒绝分隔符变体与盘符，防借道磁盘层穿越。
-	if isStaticRelSafe(rel) {
-		if data, err := os.ReadFile(filepath.Join(webDistDir(), rel)); err == nil {
-			writeStatic(w, rel, data)
-			return
-		}
-	}
 
 	data, err := distFS.ReadFile(name)
 	if err != nil {
@@ -413,12 +402,8 @@ func createHandler() http.Handler {
 			serveDiskStatus(w, r)
 		case pathname == "/api/update/manifest" && r.Method == http.MethodGet:
 			handleUpdateManifest(w, r)
-		case pathname == "/api/update/apply/web" && r.Method == http.MethodPost:
-			handleApplyWebUpdate(w, r)
 		case pathname == "/api/update/apply/server" && r.Method == http.MethodPost:
 			handleApplyServerUpdate(w, r)
-		case pathname == "/api/update/rollback/web" && r.Method == http.MethodPost:
-			handleRollbackWebUpdate(w, r)
 		case pathname == "/api/server-info":
 			serveServerInfo(w, r)
 		case pathname == "/api/config" && r.Method == http.MethodGet:

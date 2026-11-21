@@ -25,7 +25,7 @@ env:
 
 jobs:
   server:
-    name: Web + 五平台服务端
+    name: 五平台服务端
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +73,6 @@ jobs:
           V="${REF#v}"
           cd release_ci
           zip -q "FileServer_${V}_Windows_x86_64.zip" FileServer-win.exe
-          (cd ../dist && zip -qr "../release_ci/FileServer_${V}_Web.zip" .)
           for p in Linux_x86_64:linux-x86_64 Linux_arm64:linux-arm64 macOS_x86_64:mac-x86_64 macOS_arm64:mac-arm64; do
             tar -czf "FileServer_${V}_${p%%:*}.tar.gz" --mode=0755 "FileServer-${p##*:}"
           done

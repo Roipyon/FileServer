@@ -145,6 +145,7 @@
       <UploadOverlay
         v-if="showUpload && !isUploadPage"
         :pending-files="pendingUploadFiles"
+        :mobile="isMobile"
         @close="handleUploadClose"
         @upload-complete="handleUploadComplete"
       />

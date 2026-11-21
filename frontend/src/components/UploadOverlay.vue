@@ -10,8 +10,9 @@
       </div>
 
       <div class="upload-dialog-body">
-        <!-- Drop zone -->
+        <!-- 桌面：拖放区 -->
         <div
+          v-if="!mobile"
           class="upload-dropzone"
           :class="{ dragover: isDragging }"
           @dragover.prevent="isDragging = true"
@@ -35,6 +36,40 @@
               />
             </label>
           </div>
+        </div>
+
+        <!-- 移动端：拍照 / 相册 / 选择文件（触屏无拖放，不出现 PC 字样与样式） -->
+        <div v-else class="upload-mobile-entry">
+          <label class="upload-browse-btn">
+            <i class="fas fa-camera"></i>&nbsp; 拍照
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              @change="onFileChange"
+            />
+          </label>
+          <label class="upload-browse-btn">
+            <i class="fas fa-images"></i>&nbsp; 相册
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              @change="onGalleryChange"
+            />
+          </label>
+          <label class="upload-browse-btn">
+            <i class="fas fa-folder-open"></i>&nbsp; 选择文件
+            <input
+              ref="fileInputRef"
+              type="file"
+              multiple
+              hidden
+              @change="onFileChange"
+            />
+          </label>
         </div>
 
         <!-- File queue -->
@@ -115,14 +150,17 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useUpload } from '../composables/useUpload'
+import { useToast } from '../composables/useToast'
 import { formatFileSize } from '../utils/helpers.js'
 
 const props = defineProps({
-  pendingFiles: { type: Array, default: null }
+  pendingFiles: { type: Array, default: null },
+  mobile: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['close', 'upload-complete'])
 const { uploading, uploadProgress, uploadStatus, uploadSpeed, uploadEta, uploadFiles, addFiles, removeFile, clearFiles, startUpload, retryItem, retryAll, shouldAutoClose } = useUpload()
+const toast = useToast()
 
 // 接收外部传入的待上传文件（移动端拍照/相册/文件选择）：
 // 仅加入队列，不自动上传——用户可在弹窗内继续逐个添加，统一按"开始上传"提交
@@ -151,6 +189,17 @@ function close() {
 function onFileChange(e) {
   if (e.target.files.length > 0) {
     addFiles(e.target.files)
+  }
+  e.target.value = ''
+}
+
+// 移动端相册选择：沿用快速栏的 50 张上限
+function onGalleryChange(e) {
+  const files = e.target.files
+  if (files && files.length > 0) {
+    const list = files.length > 50 ? Array.from(files).slice(0, 50) : Array.from(files)
+    if (files.length > 50) toast.warning('最多选择 50 张照片，已截取前 50 张')
+    addFiles(list)
   }
   e.target.value = ''
 }
@@ -302,6 +351,14 @@ function statusLabel(s) {
 
 .upload-dialog-body {
   padding: 24px 28px 28px;
+}
+
+/* --- 移动端入口行（拍照/相册/选择文件）----------------------- */
+.upload-mobile-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
 }
 
 /* --- Dropzone ---------------------------------------------- */
